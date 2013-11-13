@@ -11,40 +11,37 @@
 #include <boost/function.hpp>
 #include <boost/shared_ptr.hpp>
 
+using namespace std;
+
 namespace yodb {
 
 class Thread : boost::noncopyable {
 public:
     typedef boost::function<void()> Function;
 
-    explicit Thread(Function& fn, std::string& name);
+    explicit Thread(const Function&, const string& name = string());
     ~Thread();
 
     void run();
     void join();
 
+    pid_t get_tid()
+    {
+        return static_cast<pid_t>(*tid_);
+    }
+
+    bool is_main_thread() 
+    {
+        return get_tid() == getpid();
+    }
 private:
-    bool running_;
+    bool alive_;
     bool joined_;
     pthread_t tidp_;
-    std::string name_;
+    string name_;
     boost::shared_ptr<pid_t> tid_;
     Function thread_fn_;
 };
-
-namespace current_thread {
-
-    __thread pid_t cached_tid = 0;
-    __thread const char* thread_name = "unknown";
-
-    pid_t get_tid()
-    {
-        if (!cached_tid) {
-            cached_tid = static_cast<pid_t>(syscall(SYS_gettid));
-        } 
-        return cached_tid;
-    }
-} // namespace current_thread
 
 } // namespace yodb
 

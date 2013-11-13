@@ -1,6 +1,22 @@
 #include "util/thread.h"
 #include <boost/weak_ptr.hpp>
 
+namespace yodb {
+namespace current_thread {
+
+    __thread pid_t cached_tid = 0;
+    __thread const char* thread_name = "unknown";
+
+    pid_t get_tid()
+    {
+        if (!cached_tid) {
+            cached_tid = static_cast<pid_t>(syscall(SYS_gettid));
+        } 
+        return cached_tid;
+    }
+} // namespace current_thread
+} // namespace yodb
+
 using namespace yodb;
 
 struct ThreadData {
@@ -39,15 +55,15 @@ void* thread_start_fn(void* arg)
     return NULL;
 }
 
-Thread::Thread(Function& fn, std::string& name)
-    : running_(false), joined_(false), tidp_(0), 
-      name_(name), tid_(new pid_t), thread_fn_(fn)
+Thread::Thread(const Function& fn, const std::string& name)
+    : alive_(false), joined_(false), tidp_(0), 
+      name_(name), tid_(new pid_t(0)), thread_fn_(fn)
 {
 }
 
 Thread::~Thread()
 {
-    if (running_ && !joined_) 
+    if (alive_ && !joined_) 
         pthread_detach(tidp_);
 }
 
@@ -55,16 +71,16 @@ void Thread::run()
 {
     ThreadData* data = new ThreadData(thread_fn_, name_, tid_);
     
-    running_ = true;
+    alive_ = true;
     if (pthread_create(&tidp_, NULL, &thread_start_fn, (void*)data)) {
-        running_ = false;
+        alive_ = false;
         delete data;
     }
 }
 
 void Thread::join()
 {
-    assert(running_);
+    assert(alive_);
     assert(!joined_);
 
     joined_ = true;
