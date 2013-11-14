@@ -45,6 +45,13 @@ public:
         return Slice(s, size_);
     }
 
+    static Slice alloc(size_t size)
+    {
+        assert(size);
+        char* s = new char[size];
+        return Slice(s, size);
+    }
+
     void release() 
     {
         assert(size_);

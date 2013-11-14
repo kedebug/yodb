@@ -43,6 +43,14 @@ private:
     Function thread_fn_;
 };
 
+namespace current_thread {
+
+extern __thread const char* thread_name;
+extern __thread pid_t cached_tid;
+extern pid_t get_tid();
+
+} // namespace current_thread
+
 } // namespace yodb
 
 #endif // _YODB_THREAD_H_

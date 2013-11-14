@@ -4,16 +4,17 @@
 namespace yodb {
 namespace current_thread {
 
-    __thread pid_t cached_tid = 0;
-    __thread const char* thread_name = "unknown";
+__thread pid_t cached_tid = 0;
+__thread const char* thread_name = "unknown";
 
-    pid_t get_tid()
-    {
-        if (!cached_tid) {
-            cached_tid = static_cast<pid_t>(syscall(SYS_gettid));
-        } 
-        return cached_tid;
-    }
+pid_t get_tid()
+{
+    if (!cached_tid) {
+        cached_tid = static_cast<pid_t>(syscall(SYS_gettid));
+    } 
+    return cached_tid;
+}
+
 } // namespace current_thread
 } // namespace yodb
 
