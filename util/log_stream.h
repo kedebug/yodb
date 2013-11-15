@@ -7,18 +7,11 @@
 
 namespace yodb {
 
-const int kSmallBuffer = 4000;
-const int kLargeBuffer = 4000 * 1000;
-
 class LogStream : boost::noncopyable {
 public:
     LogStream()
-        : log_buffer_(Slice::alloc(kSmallBuffer))
+        : log_buffer_()
     {
-    }
-    ~LogStream()
-    {
-        log_buffer_.get_buffer().release();
     }
 
     Slice get_stream_data()
@@ -62,13 +55,13 @@ public:
         return *this;
     }
 
-    void append(const char* s, size_t length) 
+    inline void append(const char* s, size_t length) 
     {
-        log_buffer_.append(s, length);
+        log_buffer_.append(Slice(s, length));
     }
 private:
     template<typename T> void format_integer(T);
-    Block log_buffer_;
+    FixedBlock<kSmallBuffer> log_buffer_;
 };
 
 class Fmt {

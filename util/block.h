@@ -8,6 +8,46 @@
 
 namespace yodb {
 
+const int kSmallBuffer = 4000;
+const int kLargeBuffer = 4000 * 1000;
+
+template<int SIZE>
+class FixedBlock {
+public:
+    FixedBlock()
+        : offset_(0)
+    {
+    }
+
+    size_t avail()
+    {
+        return SIZE - offset_;
+    }
+
+    void append(const Slice& slice) 
+    {
+        assert(avail() > slice.size());
+        memcpy(buffer_ + offset_, slice.data(), slice.size());
+        offset_ += slice.size();
+    }
+
+    void append(const char* s, size_t len)
+    {
+        assert(avail() > len);
+        memcpy(buffer_ + offset_, s, len);
+        offset_ += len;
+    }
+
+    Slice get_buffer()
+    {
+        assert(offset_ < SIZE);
+        return Slice(buffer_, offset_);
+    }
+private:
+    char buffer_[SIZE];
+    size_t offset_;
+};
+
 class Block : boost::noncopyable {
 public:
     explicit Block(Slice slice)
@@ -18,14 +58,6 @@ public:
     size_t  capacity()      { return buffer_.size(); }
     size_t  avail()         { return buffer_.size() - offset_; }
     Slice&  get_buffer()    { return buffer_; }
-
-    void append(const char* src, size_t length)
-    {
-        assert(length < avail());
-        char* dst = const_cast<char*>(buffer_.data());
-        strncpy(dst + offset_, src, length);
-        offset_ += length;
-    }
 
 private:
     Slice buffer_;
