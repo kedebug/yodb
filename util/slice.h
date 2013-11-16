@@ -9,15 +9,27 @@ namespace yodb {
 
 class Slice {
 public:
-    Slice() : data_(""), size_(0) {}
-    Slice(const char* s) : data_(s), size_(strlen(s)) {}
-    Slice(const char* s, size_t size) : data_(s), size_(size) {}
-    Slice(const std::string& s) : data_(s.data()), size_(s.size()) {}
+    Slice() 
+        : data_(""), size_(0), is_self_alloc_(false) {}
+    Slice(const char* s) 
+        : data_(s), size_(strlen(s)), is_self_alloc_(false) {}
+    Slice(const char* s, size_t size) 
+        : data_(s), size_(size), is_self_alloc_(false) {}
+    Slice(const char* s, size_t size, bool is_self_alloc) 
+        : data_(s), size_(size), is_self_alloc_(is_self_alloc) {}
+    Slice(const std::string& s) 
+        : data_(s.data()), size_(s.size()), is_self_alloc_(false) {}
 
     const char* data() const { return data_; }
     size_t size() const { return size_; }
     bool empty() const { return size_ == 0; }
-    void clear() { data_ = ""; size_ = 0; }
+
+    void clear() 
+    { 
+        data_ = ""; 
+        size_ = 0; 
+        is_self_alloc_ = false;
+    }
     
     char operator[] (size_t i) const 
     {
@@ -42,18 +54,19 @@ public:
         char* s = new char[size_];
         assert(s);
         memcpy(s, data_, size_);
-        return Slice(s, size_);
+        return Slice(s, size_, true);
     }
 
     static Slice alloc(size_t size)
     {
         assert(size);
         char* s = new char[size];
-        return Slice(s, size);
+        return Slice(s, size, true);
     }
 
     void release() 
     {
+        assert(is_self_alloc_);
         assert(size_);
         delete[] data_;
         clear();
@@ -62,6 +75,7 @@ public:
 private:
     const char* data_;
     size_t size_;
+    bool is_self_alloc_;
 };
 
 inline bool operator== (const Slice& x, const Slice& y)
