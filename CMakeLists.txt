@@ -31,12 +31,13 @@ set(LIBRARY_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/lib)
 set(EXECUTABLE_OUTPUT_PATH ${PROJECT_SOURCE_DIR}/bin) 
 
 file(GLOB_RECURSE SOURCE 
-    "${CMAKE_CURRENT_SOURCE_DIR}/db"
-    "${CMAKE_CURRENT_SOURCE_DIR}/tree"
-    "${CMAKE_CURRENT_SOURCE_DIR}/util"
-    "*.cc"
+     ${CMAKE_CURRENT_SOURCE_DIR} 
+     ${CMAKE_CURRENT_SOURCE_DIR}/db/*.cc
+     ${CMAKE_CURRENT_SOURCE_DIR}/util/*.cc
+     ${CMAKE_CURRENT_SOURCE_DIR}/tree/*.cc
 )
 
+message(STATUS ${SOURCE})
 add_library(yodb ${SOURCE})
 target_link_libraries(yodb pthread rt)
 set_target_properties(yodb PROPERTIES OUTPUT_NAME yodb)
