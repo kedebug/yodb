@@ -67,7 +67,7 @@ size_t Node::find_pivot(Slice key)
 void Node::push_down_msgbuf(size_t pivot_index)
 {
     nid_t child = pivots_[pivot_index].child_nid;
-    assert(child == NID_NIL); 
+    assert(child != NID_NIL); 
 
     Node* node = tree_->get_node_by_nid(child);
     assert(node);
@@ -129,6 +129,8 @@ void Node::try_split_node()
                              Pivot(node->self_nid_, right, half_key.clone()));
         root->pivots_.insert(root->pivots_.begin(), 
                              Pivot(self_nid_, left));
+
+        tree_->grow_up(root);
     } else {
         Node* parent = tree_->get_node_by_nid(parent_nid_);
         assert(parent);

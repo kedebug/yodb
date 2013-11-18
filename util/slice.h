@@ -13,9 +13,7 @@ public:
         : data_(""), size_(0), is_self_alloc_(false) {}
     Slice(const char* s) 
         : data_(s), size_(strlen(s)), is_self_alloc_(false) {}
-    Slice(const char* s, size_t size) 
-        : data_(s), size_(size), is_self_alloc_(false) {}
-    Slice(const char* s, size_t size, bool is_self_alloc) 
+    Slice(const char* s, size_t size, bool is_self_alloc = false) 
         : data_(s), size_(size), is_self_alloc_(is_self_alloc) {}
     Slice(const std::string& s) 
         : data_(s.data()), size_(s.size()), is_self_alloc_(false) {}
@@ -80,12 +78,17 @@ private:
 
 inline bool operator== (const Slice& x, const Slice& y)
 {
-    return x.compare(y);
+    return x.compare(y) == 0;
 }
 
 inline bool operator!= (const Slice& x, const Slice& y)
 {
     return !(x == y);
+}
+
+inline bool operator< (const Slice& x, const Slice& y)
+{
+    return x.compare(y) < 0;
 }
 
 } // namespace yodb

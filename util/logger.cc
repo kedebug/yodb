@@ -34,13 +34,14 @@ using namespace yodb;
 Impl::Impl(LogLevel level, const SourceFile& file, int line)
     : stream_(), level_(level), filename_(file), line_(line)    
 {
-    stream_ << LogLevelName[level] << "| ";
-    stream_ << Fmt("tid=%d | ", current_thread::get_tid());
+    stream_ << filename_.data() << ':' << line_ << ' ';
+    stream_ << LogLevelName[level] << ": ";
+    // stream_ << Fmt("tid=%d, ", current_thread::get_tid());
 }
 
 void Impl::finish()
 {
-    stream_ << " | " << filename_.data() << ':' << line_ << '\n';
+    stream_ << '\n';
 }
 
 Logger::Logger(SourceFile file, int line)
