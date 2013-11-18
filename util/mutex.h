@@ -1,6 +1,7 @@
 #ifndef _YODB_MUTEX_H_
 #define _YODB_MUTEX_H_
 
+#include "util/thread.h"
 #include <pthread.h>
 #include <boost/noncopyable.hpp>
 
@@ -9,31 +10,10 @@ namespace yodb {
 class Mutex : boost::noncopyable {
 public:
     explicit Mutex()
-        : locked_(false)
+        : holder_(0)
     {
+        assert(holder_ == 0);
         pthread_mutex_init(&mutex_, NULL);
-    }
-
-    void lock()
-    {
-        pthread_mutex_lock(&mutex_);
-        locked_ = true;
-    }
-
-    void unlock()
-    {
-        locked_ = false;
-        pthread_mutex_unlock(&mutex_);
-    }
-
-    bool assert_locked()
-    {
-        return locked_;
-    }
-
-    pthread_mutex_t* get_mutex()
-    {
-        return &mutex_;
     }
 
     ~Mutex() 
@@ -41,8 +21,26 @@ public:
         pthread_mutex_destroy(&mutex_);
     }
 
+    void lock()
+    {
+        pthread_mutex_lock(&mutex_);
+        holder_ = current_thread::get_tid();
+    }
+
+    void unlock()
+    {
+        holder_ = 0;
+        pthread_mutex_unlock(&mutex_);
+    }
+
+    bool is_locked_by_this_thread() const
+    {
+        return holder_ == current_thread::get_tid();
+    }
+
+    pthread_mutex_t* mutex() { return &mutex_; }
 private:
-    bool locked_;
+    pid_t holder_;
     pthread_mutex_t mutex_;
 };
 

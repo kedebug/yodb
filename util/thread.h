@@ -1,8 +1,6 @@
 #ifndef _YODB_THREAD_H_
 #define _YODB_THREAD_H_
 
-#include "util/mutex.h"
-
 #include <pthread.h>
 #include <sys/syscall.h>
 
