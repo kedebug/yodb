@@ -11,7 +11,7 @@ const int kCount = 10 * 1000 * 1000;
 Mutex g_mutex;
 std::vector<int> g_container;
 
-void thr_fn()
+void thr_fn() __attribute__((__noinline__))
 {
     for (int i = 0; i < kCount; i++) {
         ScopedMutex lock(g_mutex);
