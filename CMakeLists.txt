@@ -11,6 +11,7 @@ set(CXX_FLAGS
     -Wall
     -march=native
     -rdynamic
+    -std=c++0x
 )
 
 string(REPLACE ";" " " CMAKE_CXX_FLAGS "${CXX_FLAGS}")
