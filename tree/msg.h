@@ -3,6 +3,7 @@
 
 #include "util/slice.h"
 #include "util/logger.h"
+#include "util/mutex.h"
 #include "db/comparator.h"
 
 #include <vector>
@@ -49,30 +50,36 @@ public:
     typedef Container::iterator Iterator;
 
     MsgBuf(Comparator* comparator)
-        : msgbuf_(), comparator_(comparator)
+        : msgbuf_(), 
+          comparator_(comparator),
+          mutex_()
     {
     }
 
-    size_t msg_count() { return msgbuf_.size(); }
+    size_t msg_count();
 
     // release the ownership of the Msg, but not delete them.
     void release();
 
+    // you must lock hold the lock before use it
     Iterator find(Slice key);
 
     void insert(const Msg& msg);
     void insert(Iterator pos, Iterator first, Iterator last);
 
     // resize the msgbuf, release but not delete the truncated Msg
-    void resize(size_t size) { msgbuf_.resize(size); }
+    void resize(size_t size);
 
-    Iterator begin() { return msgbuf_.begin(); }
-    Iterator end()   { return msgbuf_.end(); }
+    Iterator begin()    { return msgbuf_.begin(); }
+    Iterator end()      { return msgbuf_.end(); }
+    void lock()         { mutex_.lock(); }
+    void unlock()       { mutex_.unlock(); }
 
 private:
 public:
     Container msgbuf_;
     Comparator* comparator_;
+    Mutex mutex_;
 };
 
 } // namespace yodb

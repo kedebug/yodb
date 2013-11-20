@@ -64,18 +64,18 @@ private:
     size_t offset_;
 };
 
-class BlockWriter {
-public:
-    explicit BlockWriter(Block& block)
-        : block_(block)
-    {
-    }
-
-
-
-private:
-    Block& block_;
-};
+//class BlockWriter {
+//public:
+//    explicit BlockWriter(Block& block)
+//        : block_(block)
+//    {
+//    }
+//
+//
+//
+//private:
+//    Block& block_;
+//};
 
 }
 

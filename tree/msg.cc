@@ -2,13 +2,22 @@
 
 using namespace yodb;
 
+size_t MsgBuf::msg_count()
+{
+    ScopedMutex lock(mutex_);
+    return msgbuf_.size();
+}
+
 void MsgBuf::release()
 {
+    ScopedMutex lock(mutex_);
     msgbuf_.clear();
 }
 
 void MsgBuf::insert(const Msg& msg)
 {
+    ScopedMutex lock(mutex_);
+
     Iterator iter = begin();
 
     for (; iter != end(); iter++) {
@@ -25,11 +34,20 @@ void MsgBuf::insert(const Msg& msg)
 
 void MsgBuf::insert(Iterator pos, Iterator first, Iterator last)
 {
+    ScopedMutex lock(mutex_);
     msgbuf_.insert(pos, first, last); 
+}
+
+void MsgBuf::resize(size_t size)
+{
+    ScopedMutex lock(mutex_);
+    msgbuf_.resize(size);
 }
 
 MsgBuf::Iterator MsgBuf::find(Slice key)
 {
+    assert(mutex_.is_locked_by_this_thread());
+
     size_t left = 0, right = msgbuf_.size() - 1; 
 
     while (left <= right) {
