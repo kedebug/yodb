@@ -49,14 +49,14 @@ public:
     {
     }
 
-    bool get(Slice key, Slice& value);
+    bool get(const Slice& key, Slice& value);
 
-    bool put(Slice key, Slice value)
+    bool put(const Slice& key, const Slice& value)
     {
         return write(Msg(Put, key.clone(), value.clone()));
     }
 
-    bool del(Slice key)
+    bool del(const Slice& key)
     {
         return write(Msg(Del, key.clone()));
     }

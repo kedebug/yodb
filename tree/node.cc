@@ -3,7 +3,7 @@
 
 using namespace yodb;
 
-bool Node::get(Slice key, Slice& value)
+bool Node::get(const Slice& key, Slice& value)
 {
     read_lock();
 
