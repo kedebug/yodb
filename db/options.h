@@ -9,6 +9,7 @@ class Options {
 public:
     Options() 
     {
+        comparator = NULL;
         max_node_child_number = 16;
         max_node_msg_count    = 64;
     }

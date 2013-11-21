@@ -48,16 +48,25 @@ MsgBuf::Iterator MsgBuf::find(Slice key)
 {
     assert(mutex_.is_locked_by_this_thread());
 
-    size_t left = 0, right = msgbuf_.size() - 1; 
+    // Iterator iter = begin();
+    // for (; iter != end(); iter++) {
+    //     if (comparator_->compare(key, iter->key()) == 0)
+    //         break;
+    // }
+    // return iter;
+
+    if (msgbuf_.empty()) return end();
+
+    int left = 0, right = msgbuf_.size() - 1; 
 
     while (left <= right) {
-        size_t middle = (right + left) / 2;
+        int middle = (right + left) / 2;
         int comp = comparator_->compare(key, msgbuf_[middle].key());
 
         if (comp > 0)
-            middle = right - 1;
+            left = middle + 1;
         else if (comp < 0)
-            middle = left + 1;
+            right = middle - 1;
         else
             return begin() + middle;
     }

@@ -22,6 +22,7 @@ void LogStream::format_integer(T value)
     }
 
     if (value < 0) *p++ = '-';
+    else if (value == 0) *p++ = '0';
     *p = '\0';
     std::reverse(buf, p);
 

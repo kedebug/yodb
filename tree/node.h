@@ -62,6 +62,7 @@ public:
     }
 
     bool write(const Msg& msg);
+    bool special_write_during_push_down(const Msg& msg);
 
     // when the leaf node's number of pivot is out of limit,
     // it then will split the node and push up the split operation.
@@ -70,7 +71,7 @@ public:
     void create_first_pivot();
     // find which pivot matches the key
     size_t find_pivot(Slice key);
-    void add_pivot(Slice key, nid_t child);
+    void add_pivot(Slice key, nid_t child, nid_t child_sibling);
 
     // maybe push down or split the msgbuf
     void maybe_push_down_or_split();

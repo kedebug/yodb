@@ -9,6 +9,9 @@ DBImpl::~DBImpl()
 
 bool DBImpl::init()
 {
+    if (opts_.comparator == NULL) {
+        return false;
+    }
     tree_ = new BufferTree(name_, opts_); 
     if (tree_ == NULL)
         return false;

@@ -11,15 +11,25 @@ bool Node::get(const Slice& key, Slice& value)
     MsgBuf* msgbuf = pivots_[index].msgbuf;
     assert(msgbuf);
 
+    msgbuf->lock();
     MsgBuf::Iterator iter = msgbuf->find(key);
     if (iter != msgbuf->end() && iter->key() == key) {
-        read_unlock();
         if (iter->type() == Put) {
             value = iter->value().clone();
+            msgbuf->unlock();
+            read_unlock();
             return true;
         } else {
+            msgbuf->unlock();
+            read_unlock();
             return false;
         }
+    }
+    msgbuf->unlock();
+
+    if (pivots_[index].child_nid == NID_NIL) {
+        read_unlock();
+        return false;
     }
 
     Node* node = tree_->get_node_by_nid(pivots_[index].child_nid);
@@ -42,14 +52,11 @@ bool Node::write(const Msg& msg)
         read_lock();
     }
 
-    LOG_INFO << "write started";
-
     MsgBuf* msgbuf = pivots_[pivot_index].msgbuf;
 
     // considing multithreads come to insert msg to same msgbuf
     msgbuf->insert(msg);
 
-    LOG_INFO << "write finished";
     read_unlock();
 
     if (msgbuf->msg_count() > tree_->options_.max_node_msg_count) {
@@ -59,6 +66,19 @@ bool Node::write(const Msg& msg)
             push_down_msgbuf(pivot_index);
     } 
 
+    return true;
+}
+
+bool Node::special_write_during_push_down(const Msg& msg)
+{
+    //read_lock();
+
+    size_t pivot_index = find_pivot(msg.key());
+    MsgBuf* msgbuf = pivots_[pivot_index].msgbuf;
+
+    msgbuf->insert(msg);
+
+    //read_unlock();
     return true;
 }
 
@@ -93,8 +113,6 @@ void Node::push_down_msgbuf(size_t pivot_index)
 {
     read_lock();
 
-    LOG_INFO << "push_down_msgbuf start";
-
     nid_t child = pivots_[pivot_index].child_nid;
     assert(child != NID_NIL); 
 
@@ -107,12 +125,14 @@ void Node::push_down_msgbuf(size_t pivot_index)
     msgbuf->lock();
     for (MsgBuf::Iterator it = msgbuf->begin(); it != msgbuf->end(); it++) {
         // TODO: optimization
-        node->write(*it);
+        // warning: node mustn't split during push_down_msgbuf() 
+        //if (node->pivots_[0].child_nid == NID_NIL)
+        //    node->special_write_during_push_down(*it);
+        //else
+            node->write(*it);
     }
     msgbuf->unlock();
     msgbuf->release();
-
-    LOG_INFO << "push_down_msgbuf finish";
 }
 
 void Node::split_msgbuf(size_t index)
@@ -123,8 +143,6 @@ void Node::split_msgbuf(size_t index)
         write_unlock();
         return;
     }
-
-    LOG_INFO << "split_msgbuf start";
 
     MsgBuf* srcbuf = pivots_[index].msgbuf;
     MsgBuf* dstbuf = new MsgBuf(tree_->options_.comparator);    
@@ -137,12 +155,13 @@ void Node::split_msgbuf(size_t index)
 
     dstbuf->insert(dstbuf->begin(), first, last);
 
+    LOG_INFO << "split_msgbuf, " << half << ' ' << srcbuf->msg_count() << ' ' << key.data();
+
     srcbuf->resize(half);
 
     pivots_.insert(pivots_.begin() + index + 1, 
                    Pivot(NID_NIL, dstbuf, key.clone()));
 
-    LOG_INFO << "split_msgbuf finish";
     write_unlock();
  
     // rarely concurrency can come here, here all lock is free
@@ -155,10 +174,10 @@ void Node::try_split_node()
 
     write_lock();
 
-    LOG_INFO << "try_split_node started";
-
     size_t half = pivots_.size() / 2;
     Slice half_key = pivots_[half].left_most_key();
+
+    LOG_INFO << "try_split_node, " << half_key.data();
 
     Node* node = tree_->create_node(parent_nid_);
     
@@ -168,9 +187,8 @@ void Node::try_split_node()
     node->pivots_.insert(node->pivots_.begin(), first, last);
     pivots_.resize(half); 
 
-    LOG_INFO << "xxxx";
     if (parent_nid_ == NID_NIL) {
-        LOG_INFO << "tree group up";
+        LOG_INFO << "grow_up";
         Node* root = tree_->create_node(NID_NIL);
 
         parent_nid_ = root->self_nid_;
@@ -189,29 +207,32 @@ void Node::try_split_node()
     } else {
         Node* parent = tree_->get_node_by_nid(parent_nid_);
         assert(parent);
-        LOG_INFO << "yyy";
-        parent->add_pivot(half_key, self_nid_);
+        parent->add_pivot(half_key, node->self_nid_, self_nid_);
     }
-
-    LOG_INFO << "try_split_node finished";
 
     write_unlock();
 }
 
-void Node::add_pivot(Slice key, nid_t child)
+void Node::add_pivot(Slice key, nid_t child, nid_t child_sibling)
 {
     // write lock the node when add a pivot
     write_lock();
 
-    LOG_INFO << "add_pivot started";
-
-    size_t pivot_index = find_pivot(key);
     MsgBuf* msgbuf = new MsgBuf(tree_->options_.comparator);
 
-    pivots_.insert(pivots_.begin() + pivot_index + 1, 
-                   Pivot(child, msgbuf, key.clone()));
+    for (size_t i = 0; i < pivots_.size(); i++) {
+        if (pivots_[i].child_nid == child_sibling) {
+            pivots_.insert(pivots_.begin() + i + 1,
+                           Pivot(child, msgbuf, key.clone()));
+            break;
+        }
+    }
 
-    LOG_INFO << "add_pivot finished";
+    //size_t pivot_index = find_pivot(key);
+
+    //pivots_.insert(pivots_.begin() + pivot_index + 1, 
+    //               Pivot(child, msgbuf, key.clone()));
+
     write_unlock();
 
     try_split_node();
