@@ -1,11 +1,27 @@
 #include "util/logger.h"
 #include "util/thread.h"
+#include <stdlib.h>
 
 namespace yodb {
 
 LogLevel init_logger_level()
 {
-    return TRACE;
+    char* env = getenv("YODB_LOG_LEVEL");
+
+    if (env == NULL)
+        return INFO;
+    else if (strcmp(env, "TRACE") == 0)
+        return TRACE;
+    else if (strcmp(env, "DEBUG") == 0)
+        return DEBUG;
+    else if (strcmp(env, "INFO") == 0) 
+        return INFO;
+    else if (strcmp(env, "WARN") == 0)
+        return WARN;
+    else if (strcmp(env, "ERROR") == 0)
+        return ERROR;
+
+    return INFO;
 }
 
 void default_output(const char* msg, int len)
@@ -36,7 +52,7 @@ Impl::Impl(LogLevel level, const SourceFile& file, int line)
 {
     stream_ << filename_.data() << ':' << line_ << ' ';
     stream_ << LogLevelName[level] << ": ";
-    // stream_ << Fmt("tid=%d, ", current_thread::get_tid());
+    stream_ << Fmt("tid=%d, ", current_thread::get_tid());
 }
 
 void Impl::finish()

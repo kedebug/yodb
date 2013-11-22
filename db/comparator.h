@@ -14,12 +14,7 @@ class LexicalComparator : public Comparator {
 public:
     int compare(const Slice& a, const Slice& b) const 
     {
-        if (a.size() < b.size())
-            return -1;
-        else if (a.size() > b.size())
-            return 1;
-        else
-            return a.compare(b);
+        return a.compare(b);
     }
 };
 
