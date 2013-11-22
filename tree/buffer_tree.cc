@@ -4,7 +4,8 @@ using namespace yodb;
 
 bool BufferTree::init_tree()
 {
-    root_ = create_node(NID_NIL);
+    root_ = create_node(true);
+    root_->create_first_pivot();
     return root_ != NULL;
 }
 
@@ -14,14 +15,14 @@ void BufferTree::grow_up(Node* root)
     root_ = root;
 }
 
-Node* BufferTree::create_node(nid_t parent)
+Node* BufferTree::create_node(bool leaf)
 {
     ScopedMutex lock(mutex_);
 
     ++node_count_;
 
     nid_t nid = node_count_;
-    Node* node = new Node(this, nid, parent);
+    Node* node = new Node(this, nid, leaf);
     node_map_[nid] = node;
 
     return node;
@@ -30,8 +31,20 @@ Node* BufferTree::create_node(nid_t parent)
 Node* BufferTree::get_node_by_nid(nid_t nid)
 {
     ScopedMutex lock(mutex_);
+    assert(nid != NID_NIL);
     assert(nid <= node_count_);
     return node_map_[nid];
+}
+
+void BufferTree::lock_path(const Slice& key, std::vector<nid_t>& path)
+{
+    ScopedMutex lock(mutex_lock_path_);
+    Node* root = root_;
+    root->write_lock();
+    if (root != root_) 
+        root->write_unlock();
+    else 
+        root->lock_path(key, path);
 }
 
 bool BufferTree::put(const Slice& key, const Slice& value)
