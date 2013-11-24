@@ -1,5 +1,5 @@
 #include "util/logger.h"
-#include "util/thread.h"
+#include "sys/thread.h"
 #include <stdlib.h>
 
 namespace yodb {

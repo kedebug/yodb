@@ -1,5 +1,5 @@
-#include "util/thread.h"
-#include "util/mutex.h"
+#include "sys/thread.h"
+#include "sys/mutex.h"
 #include "util/timestamp.h"
 #include <boost/ptr_container/ptr_container.hpp>
 #include <gtest/gtest.h>

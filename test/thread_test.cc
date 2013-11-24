@@ -1,5 +1,5 @@
 #include <gtest/gtest.h>
-#include "util/thread.h"
+#include "sys/thread.h"
 
 using namespace yodb;
 

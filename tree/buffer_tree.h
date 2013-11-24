@@ -4,7 +4,7 @@
 #include "db/options.h"
 #include "util/slice.h"
 #include "tree/node.h"
-#include "util/mutex.h"
+#include "sys/mutex.h"
 
 #include <map>
 #include <string>

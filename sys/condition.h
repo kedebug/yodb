@@ -1,7 +1,7 @@
 #ifndef _YODB_COND_H_
 #define _YODB_COND_H_
 
-#include "util/mutex.h"
+#include "sys/mutex.h"
 #include <pthread.h>
 #include <boost/noncopyable.hpp>
 

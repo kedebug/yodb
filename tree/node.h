@@ -1,9 +1,9 @@
 #ifndef _YODB_NODE_H_
 #define _YODB_NODE_H_
 
-#include "util/slice.h"
 #include "tree/msg.h"
-#include "util/rwlock.h"
+#include "sys/rwlock.h"
+#include "util/slice.h"
 #include "util/logger.h"
 
 #include <stdint.h>

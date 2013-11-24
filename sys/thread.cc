@@ -1,4 +1,4 @@
-#include "util/thread.h"
+#include "sys/thread.h"
 #include <boost/weak_ptr.hpp>
 
 namespace yodb {

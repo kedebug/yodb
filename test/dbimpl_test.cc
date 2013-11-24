@@ -1,6 +1,6 @@
 #include "db/db_impl.h"
 #include "db/options.h"
-#include "util/thread.h"
+#include "sys/thread.h"
 #include "util/slice.h"
 #include "util/timestamp.h"
 #include <stdint.h>

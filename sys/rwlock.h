@@ -1,8 +1,8 @@
 #ifndef _YODB_RWLOCK_H_
 #define _YODB_RWLOCK_H_
 
-#include "util/mutex.h"
-#include "util/condition.h"
+#include "sys/mutex.h"
+#include "sys/condition.h"
 #include <boost/noncopyable.hpp>
 
 namespace yodb {

@@ -1,5 +1,5 @@
-#include "util/rwlock.h"
-#include "util/thread.h"
+#include "sys/rwlock.h"
+#include "sys/thread.h"
 #include "util/timestamp.h"
 
 #include <pthread.h>

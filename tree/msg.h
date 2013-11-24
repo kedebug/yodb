@@ -3,7 +3,7 @@
 
 #include "util/slice.h"
 #include "util/logger.h"
-#include "util/mutex.h"
+#include "sys/mutex.h"
 #include "db/comparator.h"
 
 #include <vector>
