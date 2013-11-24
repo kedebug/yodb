@@ -40,9 +40,8 @@ file(GLOB_RECURSE SOURCE
      ${CMAKE_CURRENT_SOURCE_DIR}/tree/*.cc
 )
 
-message(STATUS ${SOURCE})
 add_library(yodb ${SOURCE})
-target_link_libraries(yodb pthread rt)
+target_link_libraries(yodb pthread rt aio)
 set_target_properties(yodb PROPERTIES OUTPUT_NAME yodb)
 install(TARGETS yodb DESTINATION lib)
 
