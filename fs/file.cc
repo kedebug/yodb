@@ -52,6 +52,38 @@ void AIOFile::close()
     }
 }
 
+Status AIOFile::read(uint64_t offset, Slice& buffer)
+{
+    BIORequest* request = new BIORequest();
+
+    request->mutex.lock();
+    async_read(offset, buffer, boost::bind(&BIORequest::complete, request, _1));
+    assert(request->mutex.is_locked_by_this_thread());
+    request->cond.wait();
+
+    Status stat = request->status;
+    request->mutex.unlock();
+    
+    delete request;
+    return stat;
+}
+
+Status AIOFile::write(uint64_t offset, const Slice& buffer)
+{
+    BIORequest* request = new BIORequest();
+
+    request->mutex.lock();
+    async_write(offset, buffer, boost::bind(&BIORequest::complete, request, _1));
+    assert(request->mutex.is_locked_by_this_thread());
+    request->cond.wait();
+
+    Status stat = request->status;
+    request->mutex.unlock();
+    
+    delete request;
+    return stat;
+}
+
 void AIOFile::async_read(uint64_t offset, Slice& buffer, Callback cb)
 {
     struct iocb iocb;
@@ -96,7 +128,7 @@ void AIOFile::handle_io_complete()
 {
     while (!closed_) {
         struct io_event events[MAX_AIO_EVENTS];
-        memset(events, 0, sizeof(events) * MAX_AIO_EVENTS);
+        memset(events, 0, sizeof(io_event) * MAX_AIO_EVENTS);
         
         struct timespec timeout;
         timeout.tv_sec  = 0;

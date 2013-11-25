@@ -2,6 +2,8 @@
 #define _YODB_FILE_H_
 
 #include "sys/thread.h"
+#include "sys/mutex.h"
+#include "sys/condition.h"
 #include "util/slice.h"
 #include "util/logger.h"
 
@@ -13,15 +15,33 @@ namespace yodb {
 
 #define MAX_AIO_EVENTS  100
 
-struct AIOStatus {
-    AIOStatus() : succ(false), size(0) {}
+struct Status {
+    Status() : succ(false), size(0) {}
     bool succ;
     size_t size;
 };
 
+// blocking i/o request
+class BIORequest {
+public:
+    BIORequest() 
+        : mutex(), cond(mutex), status() {}
+
+    void complete(Status stat)
+    {
+        status = stat;
+        cond.notify();
+    }
+
+    Mutex mutex;
+    CondVar cond;
+    Status status;
+};
+
+// asynchronous i/o request
 class AIORequest {
 public:
-    typedef boost::function<void (AIOStatus)> Callback;
+    typedef boost::function<void (Status)> Callback;
 
     size_t size;
     Callback callback;
@@ -35,7 +55,7 @@ class AIOReadRequest : public AIORequest, boost::noncopyable {
 public:
     void complete(int result)
     {
-        AIOStatus status;
+        Status status;
 
         if (result < 0) {
             LOG_ERROR << "AIOFile::async_read error: " << result;
@@ -53,14 +73,15 @@ class AIOWriteRequest : public AIORequest, boost::noncopyable {
 public:
     void complete(int result)
     {
-        AIOStatus status;
+        Status status;
 
         if (result < 0) {
             LOG_ERROR << "AIOFile::async_write error: " << result;
             status.succ = false;    
         } else if (result < static_cast<int>(size)) {
-            LOG_ERROR << "AIOFile::async_write incomplete, expected="
-                      << size << ", actually=" << result;
+            LOG_ERROR << "AIOFile::async_write incomplete, "
+                      << Fmt("expected=%zu, ", size)
+                      << Fmt("actually=%zu.", result);
             status.succ = false;
             status.size = result;
         } else {
@@ -80,8 +101,8 @@ public:
     bool open();
     void close();
 
-    void read(uint64_t offset, Slice& buffer);
-    void write(uint64_t offset, const Slice& buffer);
+    Status read(uint64_t offset, Slice& buffer);
+    Status write(uint64_t offset, const Slice& buffer);
     
     typedef AIORequest::Callback Callback;
 
