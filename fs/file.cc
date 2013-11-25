@@ -96,12 +96,19 @@ void AIOFile::async_read(uint64_t offset, Slice& buffer, Callback cb)
     io_prep_pread(&iocb, fd_, (void*)buffer.data(), buffer.size(), offset);
     iocb.data = request;
 
-    int status = io_submit(ioctx_, 1, &iocbs);
-    if (status < 0) {
-        LOG_ERROR << "io_submit error: " << strerror(errno);
-        request->complete(status);
-        delete request;
-    }
+    int status;
+    do {
+        status = io_submit(ioctx_, 1, &iocbs);
+
+        if (-1 * status == EAGAIN) {
+            usleep(1000);
+        } else if (status < 0){
+            LOG_ERROR << "io_submit error: " << strerror(errno);
+            request->complete(status);
+            delete request;
+            break;
+        }
+    } while (status < 0);
 }
 
 void AIOFile::async_write(uint64_t offset, const Slice& buffer, Callback cb)
@@ -116,12 +123,19 @@ void AIOFile::async_write(uint64_t offset, const Slice& buffer, Callback cb)
     io_prep_pwrite(&iocb, fd_, (void*)buffer.data(), buffer.size(), offset);
     iocb.data = request;
 
-    int status = io_submit(ioctx_, 1, &iocbs);
-    if (status < 0) {
-        LOG_ERROR << "io_submit error: " << strerror(errno);
-        request->complete(status);
-        delete request;
-    }
+    int status;
+    do {
+        status = io_submit(ioctx_, 1, &iocbs);
+
+        if (-1 * status == EAGAIN) {
+            usleep(1000);
+        } else if (status < 0){
+            LOG_ERROR << "io_submit error: " << strerror(errno);
+            request->complete(status);
+            delete request;
+            break;
+        }
+    } while (status < 0);
 }
 
 void AIOFile::handle_io_complete()
