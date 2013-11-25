@@ -29,7 +29,9 @@ public:
 
     void complete(Status stat)
     {
+        mutex.lock();
         status = stat;
+        mutex.unlock();
         cond.notify();
     }
 
