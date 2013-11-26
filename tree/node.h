@@ -74,7 +74,6 @@ public:
     size_t find_pivot(Slice key);
     void add_pivot(Slice key, nid_t child, nid_t child_sibling);
 
-    void maybe_split_msgbuf();
     // maybe push down or split the msgbuf
     void maybe_push_down_or_split();
 

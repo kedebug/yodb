@@ -58,11 +58,6 @@ bool Node::write(const Msg& msg)
     return true;
 }
 
-void Node::maybe_split_msgbuf()
-{
-    
-}
-
 void Node::maybe_push_down_or_split()
 {
     int index = -1;
