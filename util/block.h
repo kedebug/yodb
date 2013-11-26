@@ -55,27 +55,86 @@ public:
     {
     }
     
-    size_t  capacity()      { return buffer_.size(); }
-    size_t  avail()         { return buffer_.size() - offset_; }
-    Slice&  get_buffer()    { return buffer_; }
+    const char* data()  { return buffer_.data(); }
+    size_t  size()      { return buffer_.size(); }
+    size_t  avail()     { return buffer_.size() - offset_; }
 
 private:
     Slice buffer_;
     size_t offset_;
 };
 
-//class BlockWriter {
-//public:
-//    explicit BlockWriter(Block& block)
-//        : block_(block)
-//    {
-//    }
-//
-//
-//
-//private:
-//    Block& block_;
-//};
+class BlockReader : boost::noncopyable {
+public:
+    explicit BlockReader(Block& block)
+        : block_(block), offset_(0), succ_(true)
+    {
+    }
+
+    bool ok() { return succ_; }
+
+    typedef BlockReader self;
+
+    self& operator>>(bool& v) {
+        uint8_t val;
+
+        *this >> val;
+        if (val) v = true; 
+        else v = false;
+
+        return *this;
+    }
+
+    self& operator>>(uint8_t& v);
+    self& operator>>(uint16_t& v);
+    self& operator>>(uint32_t& v);
+    self& operator>>(uint64_t& v);
+    self& operator>>(Slice& s);
+
+private:
+    template<typename T>
+    bool read_uint(T& v);
+
+    Block& block_;
+    size_t offset_;
+    bool succ_;
+};
+
+class BlockWriter : boost::noncopyable {
+public:
+    explicit BlockWriter(Block& block)
+        : block_(block), offset_(0), succ_(true)
+    {
+    }
+
+    bool ok() { return succ_; } 
+
+    typedef BlockWriter self;
+
+    self& operator<<(bool v) {
+        uint8_t val;
+
+        if (v) val = 1;
+        else val = 0;
+
+        *this << val;
+        return *this;
+    }
+
+    self& operator<<(uint8_t v);
+    self& operator<<(uint16_t v);
+    self& operator<<(uint32_t v);
+    self& operator<<(uint64_t v);
+    self& operator<<(const Slice& s);
+
+private:
+    template<typename T>
+    bool write_uint(T v);
+
+    Block& block_;
+    size_t offset_;
+    bool succ_;
+};
 
 }
 
