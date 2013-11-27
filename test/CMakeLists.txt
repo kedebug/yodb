@@ -2,6 +2,7 @@ set(GSOURCE
     thread_test.cc
     node_test.cc
     slice_test.cc
+    block_test.cc
 )
 
 add_executable(test ${GSOURCE})

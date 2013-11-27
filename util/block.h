@@ -10,14 +10,12 @@ namespace yodb {
 
 const int kSmallBuffer = 4000;
 const int kLargeBuffer = 4000 * 1000;
-
+ 
 template<int SIZE>
 class FixedBlock {
 public:
     FixedBlock()
-        : offset_(0)
-    {
-    }
+        : offset_(0) {}
 
     size_t avail()
     {
@@ -50,18 +48,27 @@ private:
 
 class Block : boost::noncopyable {
 public:
-    explicit Block(Slice slice)
-        : buffer_(slice), offset_(0)
+    Block(Slice slice)
+        : buffer_(slice), offset_(0), size_(slice.size()) {}
+
+    // a block maybe only a part of the slice
+    Block(Slice slice, size_t offset, size_t size)
+        : buffer_(slice), offset_(offset), size_(size) 
     {
+        assert(size <= slice.size());
+        assert(offset + size <= slice.size());
     }
     
-    const char* data()  { return buffer_.data(); }
-    size_t  size()      { return buffer_.size(); }
-    size_t  avail()     { return buffer_.size() - offset_; }
+    // return data in the range of the block
+    const char* data()  { return buffer_.data() + offset_; }
+    size_t  size()      { return size_; }
+    size_t  avail()     { return size_ - offset_; }
+    Slice get_buffer()  { return buffer_; }
 
 private:
     Slice buffer_;
     size_t offset_;
+    size_t size_;
 };
 
 class BlockReader : boost::noncopyable {
@@ -136,6 +143,6 @@ private:
     bool succ_;
 };
 
-}
+} // namespace yodb
 
 #endif // _YODB_BLOCK_H_
