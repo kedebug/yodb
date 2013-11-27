@@ -52,6 +52,12 @@ void AIOFile::close()
     }
 }
 
+void AIOFile::truncate(uint64_t offset)
+{
+    if (ftruncate(fd_, offset) < 0)
+        LOG_ERROR << "ftruncate error: " << strerror(errno);
+}
+
 Status AIOFile::read(uint64_t offset, Slice& buffer)
 {
     BIORequest* request = new BIORequest();

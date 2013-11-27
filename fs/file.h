@@ -102,6 +102,7 @@ public:
 
     bool open();
     void close();
+    void truncate(uint64_t offset);
 
     Status read(uint64_t offset, Slice& buffer);
     Status write(uint64_t offset, const Slice& buffer);
