@@ -8,7 +8,9 @@
 #include <stdint.h>
 #include <map>
 #include <deque>
+
 #include <boost/noncopyable.hpp>
+#include <boost/function.hpp>
 
 namespace yodb {
 
@@ -53,6 +55,11 @@ public:
     void add_hole(uint64_t offset, uint32_t size);
     bool get_hole(uint32_t size, uint64_t& offset);
 
+    typedef boost::function<void (Status)> Callback;
+
+    Block* read(nid_t nid, bool only_index);
+    void async_write(nid_t nid, Block& block, uint32_t index_size, Callback cb);
+
     bool flush_superblock();
     bool load_superblock();
 
@@ -76,6 +83,14 @@ private:
     typedef std::map<nid_t, BlockMeta*> BlockIndex;
     BlockIndex block_index_;
 
+
+    struct AsyncWriteContext {
+        nid_t nid;
+        Callback callback;
+        BlockMeta meta;
+    };
+
+    void async_write_handler(AsyncWriteContext* context, Status status);
 
     Slice self_alloc(size_t size);
     void self_dealloc(Slice buffer);

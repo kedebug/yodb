@@ -111,7 +111,8 @@ bool Table::get_hole(uint32_t size, uint64_t& offset)
     for (iter = hole_list_.begin(); iter != hole_list_.end(); iter++) {
         if (iter->size > size) {
             iter->size -= size;
-            offset = iter->offset + iter->size;
+            offset = iter->offset;
+            iter->offset += size;
             return true;
         } else {
             offset = iter->offset;
@@ -227,9 +228,46 @@ bool Table::load_index()
     if (!reader.ok())
         LOG_ERROR << "load_index error";
 
-    self_dealloc(block->get_buffer());
+    self_dealloc(block->buffer());
     delete block;
     return reader.ok();
+}
+
+Block* Table::read(nid_t nid, bool only_index)
+{
+    BlockIndex::iterator iter = block_index_.find(nid); 
+    assert(iter != block_index_.end());
+
+    BlockMeta* meta = iter->second;
+    assert(meta);
+    Block* block = NULL;
+    if (only_index)
+        block = read_block(*meta, 0, meta->index_size);
+    else 
+        block = read_block(*meta, 0, meta->total_size); 
+
+    LOG_INFO << Fmt("read node success, nid=%zu", nid);
+    return block;
+}
+
+void Table::async_write(nid_t nid, Block& block, uint32_t index_size, Callback cb)
+{
+    assert(block.size() == block.buffer().size());
+    assert(PAGE_ROUNDED(block.size()));
+    
+    AsyncWriteContext* context = new AsyncWriteContext();
+    context->nid = nid;
+    context->callback = cb;
+    context->meta.index_size = index_size;
+    context->meta.total_size = block.size();
+    context->meta.offset = get_room(block.size());
+
+    file_->async_write(context->meta.offset, block.buffer(), 
+                boost::bind(&Table::async_write_handler, this, context, _1));
+}
+
+void Table::async_write_handler(AsyncWriteContext* context, Status status)
+{
 }
 
 uint64_t Table::get_room(uint32_t size) 
@@ -304,7 +342,7 @@ bool Table::write_file(uint64_t offset, const Slice& buffer)
 Slice Table::self_alloc(size_t size)
 {
     size_t align_size = PAGE_ROUND_UP(size);
-    void* buffer;
+    void* buffer = NULL;
 
     if (posix_memalign(&buffer, PAGE_SIZE, align_size) != 0) {
         LOG_ERROR << "posix_memalign error: " << strerror(errno);
