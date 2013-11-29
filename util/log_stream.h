@@ -16,7 +16,7 @@ public:
 
     Slice get_stream_data()
     {
-        return log_buffer_.get_buffer();
+        return log_buffer_.buffer();
     }
 
     typedef LogStream self;

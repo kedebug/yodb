@@ -36,7 +36,7 @@ public:
         offset_ += len;
     }
 
-    Slice get_buffer()
+    Slice buffer()
     {
         assert(offset_ < SIZE);
         return Slice(buffer_, offset_);
@@ -63,7 +63,7 @@ public:
     const char* data()  { return buffer_.data() + offset_; }
     size_t  size()      { return size_; }
     size_t  avail()     { return size_ - offset_; }
-    Slice get_buffer()  { return buffer_; }
+    Slice buffer()      { return buffer_; }
 
 private:
     Slice buffer_;
