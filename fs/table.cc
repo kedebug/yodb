@@ -4,6 +4,38 @@
 
 using namespace yodb;
 
+Table::~Table()
+{
+    if (!flush()) {
+        LOG_ERROR << "flush error";
+        assert(false);
+    }
+
+    BlockIndex::iterator iter;
+    for (iter = block_index_.begin(); 
+        iter != block_index_.end(); iter++) {
+        BlockMeta* meta = iter->second;
+        delete meta;
+    }
+
+    block_index_.clear();
+}
+
+bool Table::flush()
+{
+    if (!flush_index()) {
+        LOG_ERROR << "flush_index error";
+        return false;
+    }
+
+    if (!flush_superblock()) {
+        LOG_ERROR << "flush_superblock error";
+        return false;
+    }
+
+    return true;
+}
+
 bool Table::init(bool create)
 {
     if (create) {
@@ -193,6 +225,54 @@ bool Table::load_superblock()
     return reader.ok();
 }
 
+bool Table::flush_index()
+{
+    uint32_t index_size = get_index_size();
+    Slice buffer = self_alloc(index_size);
+
+    if (buffer.size() == 0) {
+        LOG_ERROR << "self_alloc failed";
+        return false;
+    }
+
+    Block block(buffer, 0, index_size);
+    BlockWriter writer(block);
+    
+    uint32_t num_index = block_index_.size();
+    BlockIndex::iterator iter;
+
+    writer << num_index;
+    for (iter = block_index_.begin(); iter != block_index_.end(); iter++) {
+        nid_t nid = iter->first;
+        BlockMeta* meta = iter->second;
+        
+        writer << nid;
+        write_block_meta(*meta, writer);
+    }
+
+    if (!writer.ok()) {
+        LOG_ERROR << "flush_index error";
+        self_dealloc(buffer);
+        return false;
+    }
+
+    uint64_t offset = get_room(buffer.size());
+    Status stat = file_->write(offset, buffer);
+
+    if (!stat.succ) {
+        LOG_ERROR << "write file error";
+        add_hole(offset, buffer.size());
+        self_dealloc(buffer);
+        return false;
+    }
+
+    superblock_.index_meta.offset = offset;
+    superblock_.index_meta.total_size = index_size;
+
+    self_dealloc(buffer);
+    return true;
+}
+
 bool Table::load_index()
 {
     assert(superblock_.index_meta.offset > 0); 
@@ -233,6 +313,15 @@ bool Table::load_index()
     return reader.ok();
 }
 
+uint32_t Table::get_index_size()
+{
+    uint32_t size_num_index = 4;
+    uint32_t num_index = block_index_.size();
+    uint32_t size_block_meta = sizeof(nid_t) + sizeof(BlockMeta);
+
+    return size_num_index + num_index * size_block_meta;
+}
+
 Block* Table::read(nid_t nid, bool only_index)
 {
     BlockIndex::iterator iter = block_index_.find(nid); 
@@ -268,6 +357,25 @@ void Table::async_write(nid_t nid, Block& block, uint32_t index_size, Callback c
 
 void Table::async_write_handler(AsyncWriteContext* context, Status status)
 {
+    if (status.succ) {
+        BlockIndex::iterator iter = block_index_.find(context->nid); 
+        if (iter == block_index_.end()) {
+            BlockMeta* meta = new BlockMeta();
+            *meta = context->meta;
+            block_index_[context->nid] = meta;
+        } else {
+            BlockMeta* meta = iter->second;
+            *meta = context->meta;
+            // we cann't guarantee whether there are some reader or not
+            // TODO: add_hole after async_write()
+        }
+    } else {
+        LOG_ERROR << "async_write error, " << Fmt("nid=%zu", context->nid);
+        add_hole(context->meta.offset, context->meta.total_size);
+    }
+
+    context->callback(status);
+    delete context;
 }
 
 uint64_t Table::get_room(uint32_t size) 

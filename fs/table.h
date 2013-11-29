@@ -49,9 +49,12 @@ public:
     {
     }
 
+    ~Table();
+
     bool init(bool create = false);
+    bool flush();
+
     void init_holes();
-    void truncate();
     void add_hole(uint64_t offset, uint32_t size);
     bool get_hole(uint32_t size, uint64_t& offset);
 
@@ -63,16 +66,21 @@ public:
     bool flush_superblock();
     bool load_superblock();
 
+    bool flush_index();
     bool load_index();
+    uint32_t get_index_size();
 
     uint64_t get_room(uint32_t size);
 
     Block* read_block(BlockMeta& meta, uint32_t offset, uint32_t size);
+
     bool read_block_meta(BlockMeta& meta, BlockReader& reader);
     bool write_block_meta(BlockMeta& meta, BlockWriter& writer);
 
     bool read_file(uint64_t offset, Slice& buffer);
     bool write_file(uint64_t offset, const Slice& buffer);
+
+    void truncate();
 
 private:
     AIOFile* file_; 
