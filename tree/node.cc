@@ -222,7 +222,8 @@ void Node::try_split_node(std::vector<nid_t>& path)
 
     // LOG_INFO << "try_split_node, " << half_key.data();
 
-    Node* node = tree_->create_node(is_leaf_);
+    Node* node = tree_->create_node();
+    node->is_leaf_ = is_leaf_;
     node->parent_nid_ = parent_nid_;
     
     Container::iterator first = pivots_.begin() + half;
@@ -240,7 +241,8 @@ void Node::try_split_node(std::vector<nid_t>& path)
 
     if (parent_nid_ == NID_NIL) {
         // assert(path.empty());
-        Node* root = tree_->create_node(false);
+        Node* root = tree_->create_node();
+        root->is_leaf_ = false;
 
         parent_nid_ = root->self_nid_;
         node->parent_nid_ = root->self_nid_;
@@ -337,4 +339,9 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf)
     }
     msgbuf->release();
     msgbuf->unlock();
+}
+
+size_t Node::get_node_size()
+{
+    return 0;
 }

@@ -39,11 +39,10 @@ private:
 
 class Node {
 public:
-    Node(BufferTree* tree, nid_t self, bool leaf)
+    Node(BufferTree* tree, nid_t self)
         : tree_(tree), 
           self_nid_(self), 
           parent_nid_(NID_NIL), 
-          is_leaf_(leaf),
           node_page_size_(0), 
           pivots_(),
           rwlock_(),
@@ -88,10 +87,16 @@ public:
     void lock_path(const Slice& key, std::vector<nid_t>& path);
     void push_down_during_lock_path(MsgBuf* msgbuf);
 
-    void read_lock()    { rwlock_.read_lock(); }
-    void read_unlock()  { rwlock_.read_unlock(); }
-    void write_lock()   { rwlock_.write_lock(); }
-    void write_unlock() { rwlock_.write_unlock(); }
+    bool try_read_lock()    { return rwlock_.try_read_lock(); }
+    bool try_write_lock()   { return rwlock_.try_write_lock(); }
+
+    void read_lock()        { rwlock_.read_lock(); }
+    void read_unlock()      { rwlock_.read_unlock(); }
+
+    void write_lock()       { rwlock_.write_lock(); }
+    void write_unlock()     { rwlock_.write_unlock(); }
+
+    size_t get_node_size();
 
 private:
     // set public to make current work(including test) more easier.

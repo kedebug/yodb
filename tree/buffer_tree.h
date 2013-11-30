@@ -33,7 +33,7 @@ public:
     bool del(const Slice& key);
     bool get(const Slice& key, Slice& value);
 
-    Node* create_node(bool is_leaf);
+    Node* create_node();
     Node* get_node_by_nid(nid_t nid);
     void  lock_path(const Slice& key, std::vector<nid_t>& path);
 

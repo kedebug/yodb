@@ -4,7 +4,8 @@ using namespace yodb;
 
 bool BufferTree::init_tree()
 {
-    root_ = create_node(true);
+    root_ = create_node();
+    root_->is_leaf_ = true;
     root_->create_first_pivot();
     return root_ != NULL;
 }
@@ -15,14 +16,14 @@ void BufferTree::grow_up(Node* root)
     root_ = root;
 }
 
-Node* BufferTree::create_node(bool leaf)
+Node* BufferTree::create_node()
 {
     ScopedMutex lock(mutex_);
 
     ++node_count_;
 
     nid_t nid = node_count_;
-    Node* node = new Node(this, nid, leaf);
+    Node* node = new Node(this, nid);
     node_map_[nid] = node;
 
     return node;
