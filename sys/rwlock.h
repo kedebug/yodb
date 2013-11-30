@@ -11,9 +11,11 @@ class RWLock : boost::noncopyable {
 public:
     RWLock();
 
+    bool try_read_lock();
     void read_lock();
     void read_unlock();
 
+    bool try_write_lock();
     void write_lock();
     void write_unlock();
 

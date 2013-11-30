@@ -13,6 +13,17 @@ RWLock::RWLock()
 {
 }
 
+bool RWLock::try_read_lock()
+{
+    ScopedMutex lock(mutex_);
+
+    if (writers_ || want_writers_)
+        return false;
+
+    ++readers_;
+    return true;
+}
+
 void RWLock::read_lock()
 {
     ScopedMutex lock(mutex_);
@@ -43,6 +54,17 @@ void RWLock::read_unlock()
 
     if (readers_ == 0 && want_writers_)
         cond_wait_write_.notify();
+}
+
+bool RWLock::try_write_lock()
+{
+    ScopedMutex lock(mutex_);
+
+    if (readers_ || writers_)
+        return false;
+
+    ++writers_;
+    return true;
 }
 
 void RWLock::write_lock()
