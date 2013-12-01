@@ -87,6 +87,8 @@ public:
     Slice self_alloc(size_t size);
     void self_dealloc(Slice buffer);
 
+    uint64_t size() { return file_size_; }
+
 private:
     AIOFile* file_; 
     uint64_t file_size_;

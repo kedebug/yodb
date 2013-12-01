@@ -6,6 +6,8 @@ using namespace yodb;
 
 Table::~Table()
 {
+    LOG_INFO << Fmt("holes: %zu", hole_list_.size());
+
     if (!flush()) {
         LOG_ERROR << "flush error";
         assert(false);
@@ -20,6 +22,7 @@ Table::~Table()
         delete meta;
     }
 
+    LOG_INFO << Fmt("holes: %zu", hole_list_.size());
     block_index_.clear();
 }
 
@@ -58,7 +61,12 @@ bool Table::flush_right_now()
         return false;
     }
 
+    // for (size_t i = 0; i < hole_list_.size(); i++) {
+    //     LOG_INFO << Fmt("hole: offset=%zu, ", hole_list_[i].offset)
+    //              << Fmt("size=%zu", hole_list_[i].size);
+    // }
     flush_fly_holes(fly_holes);
+
     return true;
 }
 
@@ -70,6 +78,7 @@ void Table::flush_fly_holes(size_t fly_holes)
         Hole hole = fly_hole_list_.front();
         add_hole(hole.offset, hole.size);
         fly_hole_list_.pop_front();
+        fly_holes--;
     }
 }
 
@@ -81,7 +90,7 @@ bool Table::init(bool create)
             return false;
         }
         offset_ = SUPER_BLOCK_SIZE;
-        file_size_ = offset_;
+        file_size_ = SUPER_BLOCK_SIZE;
     } else {
         if (file_size_ < SUPER_BLOCK_SIZE) {
             LOG_ERROR << "must be load the wrong file";
@@ -141,27 +150,46 @@ void Table::init_holes()
 
 void Table::add_hole(uint64_t offset, uint32_t size)
 {
-    ScopedMutex lock(hole_list_mutex_);
+    {
+        ScopedMutex lock(mutex_);
+        if (offset + size == offset_) {
+            offset_ = offset;
+            return ;
+        }
+    }
 
     Hole hole;
     hole.size = size;
     hole.offset = offset;
+
+    ScopedMutex lock(hole_list_mutex_);
 
     if (hole_list_.empty()) {
         hole_list_.push_back(hole);
         return;
     }
 
-    HoleList::iterator iter;
+    HoleList::iterator iter, prev;
     for (iter = hole_list_.begin(); iter != hole_list_.end(); iter++) {
         if (iter->offset > hole.offset)
             break;
+        prev = iter;
     }
 
     if (iter != hole_list_.end()) {
         assert(hole.offset + hole.size <= iter->offset);
-        if (iter != hole_list_.begin())
-            assert((iter-1)->offset + (iter-1)->size < hole.offset);
+        if (iter != hole_list_.begin()) {
+            // LOG_INFO << Fmt("offset=%zu, ", (iter-1)->offset)
+            //          << Fmt("size=%zu, ", (iter-1)->size)
+            //          << Fmt("new hole offset=%zu", hole.offset);
+            assert(prev->offset + prev->size <= hole.offset);
+
+            if (prev->offset + prev->size == hole.offset) {
+                hole.offset = prev->offset;
+                hole.size += prev->size;
+                hole_list_.erase(prev);
+            }
+        }
 
         if (hole.offset + hole.size == iter->offset) {
             iter->offset = hole.offset;
@@ -170,9 +198,8 @@ void Table::add_hole(uint64_t offset, uint32_t size)
             hole_list_.insert(iter, hole);
         }
     } else {
-        iter--;
-        if (iter->offset + iter->size == hole.offset)
-            iter->size += hole.offset;
+        if (prev->offset + prev->size == hole.offset)
+            prev->size += hole.size;
         else 
             hole_list_.push_back(hole);
     }
@@ -200,6 +227,8 @@ bool Table::get_hole(uint32_t size, uint64_t& offset)
 
 void Table::add_fly_hole(uint64_t offset, uint32_t size)
 {
+    assert(PAGE_ROUNDED(size));
+
     Hole hole;
     hole.offset = offset;
     hole.size = size;
@@ -212,9 +241,10 @@ void Table::truncate()
 {
     ScopedMutex lock(mutex_);
 
-    if (file_size_ > offset_) {
+    if (offset_ <= file_size_) {
         file_->truncate(offset_);
         file_size_ = offset_;
+        LOG_INFO << Fmt("truncate, file size=%zuK", file_size_/1024);
     }
 }
 
@@ -292,25 +322,27 @@ bool Table::flush_index()
 
     Block block(buffer, 0, index_size);
     BlockWriter writer(block);
-    
-    ScopedMutex lock(block_index_mutex_);
+   
+    {
+        ScopedMutex lock(block_index_mutex_);
 
-    uint32_t num_index = block_index_.size();
-    BlockIndex::iterator iter;
+        uint32_t num_index = block_index_.size();
+        BlockIndex::iterator iter;
 
-    writer << num_index;
-    for (iter = block_index_.begin(); iter != block_index_.end(); iter++) {
-        nid_t nid = iter->first;
-        BlockMeta* meta = iter->second;
-        
-        writer << nid;
-        write_block_meta(*meta, writer);
-    }
+        writer << num_index;
+        for (iter = block_index_.begin(); iter != block_index_.end(); iter++) {
+            nid_t nid = iter->first;
+            BlockMeta* meta = iter->second;
+            
+            writer << nid;
+            write_block_meta(*meta, writer);
+        }
 
-    if (!writer.ok()) {
-        LOG_ERROR << "flush_index error";
-        self_dealloc(buffer);
-        return false;
+        if (!writer.ok()) {
+            LOG_ERROR << "flush_index error";
+            self_dealloc(buffer);
+            return false;
+        }
     }
 
     uint64_t offset = get_room(buffer.size());
@@ -322,6 +354,10 @@ bool Table::flush_index()
         self_dealloc(buffer);
         return false;
     }
+
+    LOG_INFO << "flush_index success, " 
+             << Fmt("offset=%zu, ", offset)
+             << Fmt("size=%zu", index_size);
 
     if (superblock_.index_meta.offset) {
         add_fly_hole(superblock_.index_meta.offset, 
@@ -401,25 +437,28 @@ Block* Table::read(nid_t nid)
 
     Block* block = read_block(*meta, 0, meta->total_size); 
 
-    LOG_INFO << Fmt("read node success, nid=%zu", nid);
+    //LOG_INFO << Fmt("read node success, nid=%zu", nid);
     return block;
 }
 
 void Table::async_write(nid_t nid, Block& block, uint32_t index_size, Callback cb)
 {
-    assert(block.size() == block.buffer().size());
-    assert(PAGE_ROUNDED(block.size()));
+    assert(block.buffer().size() == PAGE_ROUND_UP(block.size())); 
     
     AsyncWriteContext* context = new AsyncWriteContext();
     context->nid = nid;
     context->callback = cb;
     context->meta.index_size = index_size;
     context->meta.total_size = block.size();
-    context->meta.offset = get_room(block.size());
+    context->meta.offset = get_room(block.buffer().size());
     {
         ScopedMutex lock(mutex_);
         fly_writers_++;
     }
+
+    // LOG_INFO << Fmt("get room, nid=%zu, ", nid)
+    //          << Fmt("offset=%zu, ", context->meta.offset)
+    //          << Fmt("size=%zu", block.buffer().size());
 
     file_->async_write(context->meta.offset, block.buffer(), 
                 boost::bind(&Table::async_write_handler, this, context, _1));
