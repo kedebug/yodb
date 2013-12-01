@@ -60,7 +60,7 @@ public:
         Status status;
 
         if (result < 0) {
-            LOG_ERROR << "AIOFile::async_read error: " << result;
+            LOG_ERROR << "AIOFile::async_read error: " << strerror(-result);
             status.succ = false;
         } else {
             status.succ = true;
@@ -78,7 +78,7 @@ public:
         Status status;
 
         if (result < 0) {
-            LOG_ERROR << "AIOFile::async_write error: " << result;
+            LOG_ERROR << "AIOFile::async_write error: " << strerror(-result);
             status.succ = false;    
         } else if (result < static_cast<int>(size)) {
             LOG_ERROR << "AIOFile::async_write incomplete, "
