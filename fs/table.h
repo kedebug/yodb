@@ -43,9 +43,8 @@ public:
 class Table : boost::noncopyable {
 public:
     Table(AIOFile* file, uint64_t file_size)
-        : file_(file), 
-          file_size_(file_size),
-          offset_(0)
+        : file_(file), file_size_(file_size), offset_(0),
+          fly_readers_(0), fly_writers_(0)
     {
     }
 
@@ -53,14 +52,17 @@ public:
 
     bool init(bool create = false);
     bool flush();
+    bool flush_right_now();
+    void flush_fly_holes(size_t fly_holes);
 
     void init_holes();
     void add_hole(uint64_t offset, uint32_t size);
     bool get_hole(uint32_t size, uint64_t& offset);
+    void add_fly_hole(uint64_t offset, uint32_t size);
 
     typedef boost::function<void (Status)> Callback;
 
-    Block* read(nid_t nid, bool only_index);
+    Block* read(nid_t nid);
     void async_write(nid_t nid, Block& block, uint32_t index_size, Callback cb);
 
     bool flush_superblock();
@@ -89,11 +91,15 @@ private:
     AIOFile* file_; 
     uint64_t file_size_;
     uint64_t offset_;
+    uint32_t fly_readers_;
+    uint32_t fly_writers_;
+    Mutex mutex_;
+
     SuperBlock superblock_;
 
     typedef std::map<nid_t, BlockMeta*> BlockIndex;
     BlockIndex block_index_;
-
+    Mutex block_index_mutex_;
 
     struct AsyncWriteContext {
         nid_t nid;
@@ -111,6 +117,10 @@ private:
     typedef std::deque<Hole> HoleList;
     // the holes is sorted by offset
     HoleList hole_list_;
+    HoleList fly_hole_list_;
+
+    Mutex hole_list_mutex_;
+    Mutex fly_hole_list_mutex_;
 };
 
 } // namespace yodb

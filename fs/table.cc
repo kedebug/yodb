@@ -12,6 +12,8 @@ Table::~Table()
     }
 
     BlockIndex::iterator iter;
+    ScopedMutex lock(block_index_mutex_);
+
     for (iter = block_index_.begin(); 
         iter != block_index_.end(); iter++) {
         BlockMeta* meta = iter->second;
@@ -23,6 +25,29 @@ Table::~Table()
 
 bool Table::flush()
 {
+    mutex_.lock();
+    while (fly_writers_) {
+        mutex_.unlock();
+        usleep(1000);
+        mutex_.lock();
+    }
+    mutex_.unlock();
+
+    if (!flush_right_now())
+        return false;
+
+    truncate();
+    return true;
+}
+
+bool Table::flush_right_now()
+{
+    size_t fly_holes;
+    {
+        ScopedMutex lock(fly_hole_list_mutex_);
+        fly_holes = fly_hole_list_.size();
+    }
+
     if (!flush_index()) {
         LOG_ERROR << "flush_index error";
         return false;
@@ -33,7 +58,19 @@ bool Table::flush()
         return false;
     }
 
+    flush_fly_holes(fly_holes);
     return true;
+}
+
+void Table::flush_fly_holes(size_t fly_holes)
+{
+    ScopedMutex lock(fly_hole_list_mutex_);
+
+    while (fly_holes) {
+        Hole hole = fly_hole_list_.front();
+        add_hole(hole.offset, hole.size);
+        fly_hole_list_.pop_front();
+    }
 }
 
 bool Table::init(bool create)
@@ -70,6 +107,8 @@ bool Table::init(bool create)
 
 void Table::init_holes()
 {
+    ScopedMutex lock(block_index_mutex_);
+
     std::map<uint64_t, BlockMeta*> offset_set; 
     offset_set[superblock_.index_meta.offset] = &superblock_.index_meta;
 
@@ -102,6 +141,8 @@ void Table::init_holes()
 
 void Table::add_hole(uint64_t offset, uint32_t size)
 {
+    ScopedMutex lock(hole_list_mutex_);
+
     Hole hole;
     hole.size = size;
     hole.offset = offset;
@@ -139,7 +180,9 @@ void Table::add_hole(uint64_t offset, uint32_t size)
 
 bool Table::get_hole(uint32_t size, uint64_t& offset)
 {
+    ScopedMutex lock(hole_list_mutex_);
     HoleList::iterator iter;
+
     for (iter = hole_list_.begin(); iter != hole_list_.end(); iter++) {
         if (iter->size > size) {
             iter->size -= size;
@@ -155,8 +198,20 @@ bool Table::get_hole(uint32_t size, uint64_t& offset)
     return false;
 }
 
+void Table::add_fly_hole(uint64_t offset, uint32_t size)
+{
+    Hole hole;
+    hole.offset = offset;
+    hole.size = size;
+
+    ScopedMutex lock(fly_hole_list_mutex_);
+    fly_hole_list_.push_back(hole);
+}
+
 void Table::truncate()
 {
+    ScopedMutex lock(mutex_);
+
     if (file_size_ > offset_) {
         file_->truncate(offset_);
         file_size_ = offset_;
@@ -238,6 +293,8 @@ bool Table::flush_index()
     Block block(buffer, 0, index_size);
     BlockWriter writer(block);
     
+    ScopedMutex lock(block_index_mutex_);
+
     uint32_t num_index = block_index_.size();
     BlockIndex::iterator iter;
 
@@ -266,6 +323,11 @@ bool Table::flush_index()
         return false;
     }
 
+    if (superblock_.index_meta.offset) {
+        add_fly_hole(superblock_.index_meta.offset, 
+                     PAGE_ROUND_UP(superblock_.index_meta.total_size));
+    }
+
     superblock_.index_meta.offset = offset;
     superblock_.index_meta.total_size = index_size;
 
@@ -286,6 +348,7 @@ bool Table::load_index()
 
     BlockReader reader(*block);
     uint32_t num_index = 0;
+    ScopedMutex lock(block_index_mutex_);
 
     reader >> num_index;
     while (reader.ok() && num_index > 0) {
@@ -315,6 +378,8 @@ bool Table::load_index()
 
 uint32_t Table::get_index_size()
 {
+    ScopedMutex lock(block_index_mutex_);
+
     uint32_t size_num_index = 4;
     uint32_t num_index = block_index_.size();
     uint32_t size_block_meta = sizeof(nid_t) + sizeof(BlockMeta);
@@ -322,18 +387,19 @@ uint32_t Table::get_index_size()
     return size_num_index + num_index * size_block_meta;
 }
 
-Block* Table::read(nid_t nid, bool only_index)
+Block* Table::read(nid_t nid)
 {
-    BlockIndex::iterator iter = block_index_.find(nid); 
-    assert(iter != block_index_.end());
+    BlockMeta* meta;
 
-    BlockMeta* meta = iter->second;
-    assert(meta);
-    Block* block = NULL;
-    if (only_index)
-        block = read_block(*meta, 0, meta->index_size);
-    else 
-        block = read_block(*meta, 0, meta->total_size); 
+    {
+        ScopedMutex lock(block_index_mutex_);
+        BlockIndex::iterator iter = block_index_.find(nid); 
+        assert(iter != block_index_.end());
+        meta = iter->second;
+        assert(meta);
+    }
+
+    Block* block = read_block(*meta, 0, meta->total_size); 
 
     LOG_INFO << Fmt("read node success, nid=%zu", nid);
     return block;
@@ -350,6 +416,10 @@ void Table::async_write(nid_t nid, Block& block, uint32_t index_size, Callback c
     context->meta.index_size = index_size;
     context->meta.total_size = block.size();
     context->meta.offset = get_room(block.size());
+    {
+        ScopedMutex lock(mutex_);
+        fly_writers_++;
+    }
 
     file_->async_write(context->meta.offset, block.buffer(), 
                 boost::bind(&Table::async_write_handler, this, context, _1));
@@ -357,7 +427,14 @@ void Table::async_write(nid_t nid, Block& block, uint32_t index_size, Callback c
 
 void Table::async_write_handler(AsyncWriteContext* context, Status status)
 {
+    {
+        ScopedMutex lock(mutex_);
+        fly_writers_--;
+    }
+
     if (status.succ) {
+        ScopedMutex lock(block_index_mutex_);
+
         BlockIndex::iterator iter = block_index_.find(context->nid); 
         if (iter == block_index_.end()) {
             BlockMeta* meta = new BlockMeta();
@@ -365,9 +442,8 @@ void Table::async_write_handler(AsyncWriteContext* context, Status status)
             block_index_[context->nid] = meta;
         } else {
             BlockMeta* meta = iter->second;
+            add_fly_hole(meta->offset, PAGE_ROUND_UP(meta->total_size));
             *meta = context->meta;
-            // we cann't guarantee whether there are some reader or not
-            // TODO: add_hole after async_write()
         }
     } else {
         LOG_ERROR << "async_write error, " << Fmt("nid=%zu", context->nid);
@@ -385,6 +461,7 @@ uint64_t Table::get_room(uint32_t size)
     if (get_hole(size, offset)) 
         return offset;
 
+    ScopedMutex lock(mutex_);
     // no hole suit for us, append the file
     offset = offset_;
     offset_ += size;
@@ -429,8 +506,19 @@ bool Table::write_block_meta(BlockMeta& meta, BlockWriter& writer)
 
 bool Table::read_file(uint64_t offset, Slice& buffer)
 {
-    Status stat = file_->read(offset, buffer);
-    if (!stat.succ) {
+    { 
+        ScopedMutex lock(mutex_); 
+        fly_readers_++; 
+    }
+
+    Status status = file_->read(offset, buffer);
+
+    {
+        ScopedMutex lock(mutex_);
+        fly_readers_--;
+    }
+
+    if (!status.succ) {
         LOG_ERROR << "read file error, " << Fmt("offset=%zu.", offset);
         return false;
     }
@@ -439,8 +527,19 @@ bool Table::read_file(uint64_t offset, Slice& buffer)
 
 bool Table::write_file(uint64_t offset, const Slice& buffer) 
 {
-    Status stat = file_->write(offset, buffer);
-    if (!stat.succ) {
+    {
+        ScopedMutex lock(mutex_);
+        fly_writers_++;
+    }
+
+    Status status = file_->write(offset, buffer);
+
+    {
+        ScopedMutex lock(mutex_);
+        fly_writers_--;
+    }
+
+    if (!status.succ) {
         LOG_ERROR << "write file error, " << Fmt("offset=%zu.", offset);
         return false;
     }
