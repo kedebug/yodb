@@ -22,3 +22,6 @@ target_link_libraries(dbimpl yodb)
 
 add_executable(file file_test.cc)
 target_link_libraries(file yodb)
+
+add_executable(table table_test.cc)
+target_link_libraries(table yodb)
