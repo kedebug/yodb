@@ -341,7 +341,7 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf)
     msgbuf->unlock();
 }
 
-size_t Node::get_node_size()
+size_t Node::write_back_size()
 {
     return 0;
 }

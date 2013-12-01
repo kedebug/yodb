@@ -58,6 +58,9 @@ public:
     {
         return write(Msg(Del, key.clone()));
     }
+    
+    size_t size() { return node_page_size_; }
+    size_t write_back_size();
 
     bool write(const Msg& msg);
 
@@ -93,7 +96,6 @@ public:
     void write_lock()       { rwlock_.write_lock(); }
     void write_unlock()     { rwlock_.write_unlock(); }
 
-    size_t get_node_size();
 
     void set_modify(bool modified)
     {

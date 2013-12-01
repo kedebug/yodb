@@ -45,7 +45,7 @@ Node* Cache::get_node_by_nid(nid_t nid)
 
     maybe_eviction();
 
-    Block* block = table_->read(nid, false);
+    Block* block = table_->read(nid);
     BlockReader reader(*block);
 
     if (block == NULL) return NULL;
@@ -63,6 +63,9 @@ Node* Cache::get_node_by_nid(nid_t nid)
 
 void Cache::write_back()
 {
+    while (alive_) {
+
+    }
 }
 
 void Cache::maybe_eviction()
