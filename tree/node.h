@@ -3,6 +3,7 @@
 
 #include "tree/msg.h"
 #include "sys/rwlock.h"
+#include "util/timestamp.h"
 #include "util/slice.h"
 #include "util/logger.h"
 
@@ -40,13 +41,9 @@ private:
 class Node {
 public:
     Node(BufferTree* tree, nid_t self)
-        : tree_(tree), 
-          self_nid_(self), 
-          parent_nid_(NID_NIL), 
-          node_page_size_(0), 
-          pivots_(),
-          rwlock_(),
-          mutex_()
+        : tree_(tree), self_nid_(self), parent_nid_(NID_NIL), 
+          node_page_size_(0), pivots_(), rwlock_(), mutex_(),
+          modified_(false), flushing_(false)
     {
     }
 
@@ -98,6 +95,49 @@ public:
 
     size_t get_node_size();
 
+    void set_modify(bool modified)
+    {
+        ScopedMutex lock(mutex_);
+
+        if (!modified_ && modified) 
+            first_write_timestamp_ = Timestamp::now();
+
+        modified_ = modified;
+    }
+
+    bool modified() 
+    {
+        ScopedMutex lock(mutex_);
+        return modified_;
+    }
+
+    void set_flushing(bool flushing)
+    {
+        ScopedMutex lock(mutex_);
+        flushing_ = flushing;
+    }
+
+    bool flushing()
+    {
+        ScopedMutex lock(mutex_);
+        return flushing_;
+    }
+
+    Timestamp get_first_write_timestamp()
+    {
+        ScopedMutex lock(mutex_);
+        return first_write_timestamp_;
+    }
+
+    Timestamp get_last_used_timestamp()
+    {
+        ScopedMutex lock(mutex_);
+        return last_used_timestamp_;
+    }
+
+    bool constrcutor(const BlockReader& reader);
+    bool destructor(BlockWriter& writer);
+
 private:
     // set public to make current work(including test) more easier.
 public:
@@ -109,7 +149,12 @@ public:
     size_t node_page_size_;
     Container pivots_; 
     RWLock rwlock_;
+
     Mutex mutex_;
+    bool modified_;
+    bool flushing_;
+    Timestamp first_write_timestamp_;
+    Timestamp last_used_timestamp_;
 };
 
 } // namespace yodb

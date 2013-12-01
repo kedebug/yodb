@@ -38,6 +38,7 @@ file(GLOB_RECURSE SOURCE
      ${CMAKE_CURRENT_SOURCE_DIR}/fs/*.cc
      ${CMAKE_CURRENT_SOURCE_DIR}/util/*.cc
      ${CMAKE_CURRENT_SOURCE_DIR}/tree/*.cc
+     ${CMAKE_CURRENT_SOURCE_DIR}/cache/*.cc
 )
 
 add_library(yodb ${SOURCE})

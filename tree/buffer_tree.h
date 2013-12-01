@@ -2,6 +2,8 @@
 #define _YODB_BUFFER_TREE_H_
 
 #include "db/options.h"
+#include "fs/table.h"
+#include "cache/cache.h"
 #include "util/slice.h"
 #include "tree/node.h"
 #include "sys/mutex.h"
@@ -43,6 +45,8 @@ public:
 
     std::string name_;
     Options options_;
+    Table* table_;
+    Cache* cache_;
     Node* root_; 
     nid_t node_count_;
     std::map<nid_t, Node*> node_map_;

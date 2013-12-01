@@ -82,6 +82,9 @@ public:
 
     void truncate();
 
+    Slice self_alloc(size_t size);
+    void self_dealloc(Slice buffer);
+
 private:
     AIOFile* file_; 
     uint64_t file_size_;
@@ -99,9 +102,6 @@ private:
     };
 
     void async_write_handler(AsyncWriteContext* context, Status status);
-
-    Slice self_alloc(size_t size);
-    void self_dealloc(Slice buffer);
 
     struct Hole {
         uint64_t offset;

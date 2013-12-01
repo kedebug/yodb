@@ -17,6 +17,7 @@ public:
     size_t max_node_child_number;
     size_t max_node_msg_count;
     size_t max_node_page_size;
+    uint64_t cache_limited_memory;
 };
 
 } // namespace yodb

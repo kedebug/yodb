@@ -345,3 +345,13 @@ size_t Node::get_node_size()
 {
     return 0;
 }
+
+bool Node::constrcutor(const BlockReader& reader)
+{
+    return false;
+}
+
+bool Node::destructor(BlockWriter& writer)
+{
+    return false;
+}
