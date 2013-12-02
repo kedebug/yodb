@@ -51,18 +51,34 @@ public:
     ~Table();
 
     bool init(bool create = false);
+    
+    // Flush all the buffers to file.
     bool flush();
     bool flush_right_now();
-    void flush_fly_holes(size_t fly_holes);
 
     void init_holes();
+
+    // Holes are unused parts of our file, we collect it for further usage.
     void add_hole(uint64_t offset, uint32_t size);
+    
+    // Whether we can get suitable room from hole list.
+    // This will be always called by get_room().
     bool get_hole(uint32_t size, uint64_t& offset);
+
+    // Fly holes are collected from asynchoronous write calls:
+    // new rooms allocated and old rooms become fly holes. 
+    // There will still be some readers since we are in multithreading environment.
+    // Fly holes will be able to use if we invoke flush_fly_holes().
     void add_fly_hole(uint64_t offset, uint32_t size);
+
+    void flush_fly_holes(size_t fly_holes);
 
     typedef boost::function<void (Status)> Callback;
 
+    // Get node's block information marked by nid.
     Block* read(nid_t nid);
+
+    // Asynchoronous write file, this will be always called by Cache module.
     void async_write(nid_t nid, Block& block, uint32_t index_size, Callback cb);
 
     bool flush_superblock();
@@ -70,23 +86,38 @@ public:
 
     bool flush_index();
     bool load_index();
+
+    // Get size of all the block meta, this will be always called by flush_index().
     uint32_t get_index_size();
 
+    // Get suitable room for size, return the offset of our file.
     uint64_t get_room(uint32_t size);
 
+    // Give a block meta, returns the part of the block you needed,
+    // offset is relative to meta.offset, not to the file.
     Block* read_block(BlockMeta& meta, uint32_t offset, uint32_t size);
 
+    // Give a reader buffer, parse the value and fill into the members of meta.
     bool read_block_meta(BlockMeta& meta, BlockReader& reader);
+
+    // Give a block meta, members in it will append to the writer buffer.
     bool write_block_meta(BlockMeta& meta, BlockWriter& writer);
 
+    // Synchoronous read file
     bool read_file(uint64_t offset, Slice& buffer);
+    // Synchoronous write file
     bool write_file(uint64_t offset, const Slice& buffer);
 
     void truncate();
 
+    // We use posix_memalign() to allocate aligned buffer, this is efficiency 
+    // since we are using asynchoronous read/write functions.
     Slice self_alloc(size_t size);
+
+    // posix_memalign() allocated buffer should use free() to deallocate.
     void self_dealloc(Slice buffer);
 
+    // size() function is seldom used, we remain it for debug reason.
     uint64_t size() { return file_size_; }
 
 private:
