@@ -26,6 +26,16 @@ inline double time_interval(const Timestamp& x, const Timestamp& y)
     return static_cast<double>(diff_microsec) / Timestamp::kMicroPerSecond;
 }
 
+inline bool operator<(const Timestamp& x, const Timestamp& y)
+{
+    return x.microseconds() < y.microseconds(); 
+}
+
+inline bool operator>(const Timestamp& x, const Timestamp& y)
+{
+    return x.microseconds() > y.microseconds(); 
+}
+
 } // namespace yodb
 
 #endif // _YODB_TIMESTAMP_H_

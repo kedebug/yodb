@@ -16,8 +16,7 @@ Table::~Table()
     BlockIndex::iterator iter;
     ScopedMutex lock(block_index_mutex_);
 
-    for (iter = block_index_.begin(); 
-        iter != block_index_.end(); iter++) {
+    for (iter = block_index_.begin(); iter != block_index_.end(); iter++) {
         BlockMeta* meta = iter->second;
         delete meta;
     }
@@ -261,8 +260,10 @@ bool Table::flush_superblock()
     
     bool maybe = superblock_.index_meta.offset == 0 ? false : true;
     writer << maybe;
-    if (writer.ok() && maybe)
+    if (writer.ok() && maybe) {
         write_block_meta(superblock_.index_meta, writer);
+        writer << superblock_.root_nid;
+    }
 
     if (!writer.ok()) {
         LOG_ERROR << "write_block_meta error";
@@ -300,7 +301,8 @@ bool Table::load_superblock()
     if (reader.ok() && maybe) {
         reader >> superblock_.index_meta.offset 
                >> superblock_.index_meta.index_size 
-               >> superblock_.index_meta.total_size;
+               >> superblock_.index_meta.total_size
+               >> superblock_.root_nid; 
     }
 
     if (!reader.ok()) 
@@ -429,8 +431,10 @@ Block* Table::read(nid_t nid)
 
     {
         ScopedMutex lock(block_index_mutex_);
+
         BlockIndex::iterator iter = block_index_.find(nid); 
-        assert(iter != block_index_.end());
+        if (iter == block_index_.end()) return NULL;
+
         meta = iter->second;
         assert(meta);
     }

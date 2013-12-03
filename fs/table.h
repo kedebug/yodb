@@ -34,9 +34,10 @@ struct BlockMeta {
 class SuperBlock {
 public:
     SuperBlock() 
-        : index_meta() {}
+        : index_meta(), root_nid(NID_NIL) {}
 
     BlockMeta index_meta;
+    nid_t root_nid;
 };
 
 // Table for permanent storage
@@ -86,6 +87,22 @@ public:
 
     bool flush_index();
     bool load_index();
+
+    nid_t get_root_nid() 
+    {
+        return superblock_.root_nid;
+    }
+
+    void set_root_nid(nid_t nid)
+    {
+        superblock_.root_nid = nid;
+    }
+
+    size_t get_node_count()  
+    {
+        ScopedMutex lock(block_index_mutex_);
+        return block_index_.size();
+    }
 
     // Get size of all the block meta, this will be always called by flush_index().
     uint32_t get_index_size();

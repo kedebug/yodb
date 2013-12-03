@@ -34,6 +34,8 @@ public:
     // invoke Table::read() to get node buffer from disk.
     Node* get(nid_t nid);
 
+    void flush();
+
     Timestamp last_checkpoint_timestamp;
 private:
     // There is a single thread to write the memory node 

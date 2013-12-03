@@ -3,9 +3,12 @@
 
 using namespace yodb;
 
-bool Node::get(const Slice& key, Slice& value)
+bool Node::get(const Slice& key, Slice& value, Node* parent)
 {
     read_lock();
+
+    if (parent)
+        parent->read_unlock();
 
     size_t index = find_pivot(key);
     MsgBuf* msgbuf = pivots_[index].msgbuf;
@@ -35,8 +38,10 @@ bool Node::get(const Slice& key, Slice& value)
     Node* node = tree_->get_node_by_nid(pivots_[index].child_nid);
     assert(node);
 
-    read_unlock();
-    return node->get(key, value);
+    bool exists = node->get(key, value, this);
+    node->dec_ref();
+
+    return exists;
 }
 
 bool Node::write(const Msg& msg)
@@ -73,7 +78,8 @@ void Node::maybe_push_down_or_split()
     if (pivots_[index].child_nid != NID_NIL) {
         MsgBuf* msgbuf = pivots_[index].msgbuf;
         Node* node = tree_->get_node_by_nid(pivots_[index].child_nid);
-        node->push_down_msgbuf(msgbuf, self_nid_);
+        node->push_down_msgbuf(msgbuf, this);
+        node->dec_ref();
     } else {
         split_msgbuf(pivots_[index].msgbuf);
     }
@@ -108,15 +114,13 @@ size_t Node::find_pivot(Slice key)
     return pivot;
 }
 
-void Node::push_down_msgbuf(MsgBuf* msgbuf, nid_t parent_nid)
+void Node::push_down_msgbuf(MsgBuf* msgbuf, Node* parent)
 {
     //LOG_INFO << "push_down_msgbuf, " << Fmt("self=%d", self_nid_);
 
     is_leaf_ ? write_lock() : read_lock();
 
     msgbuf->lock();
-
-    Node* parent = tree_->get_node_by_nid(parent_nid);
 
     size_t index = 1;
     MsgBuf::Iterator first = msgbuf->begin();
@@ -186,7 +190,7 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
 
     write_unlock();
 
-    std::vector<nid_t> locked_path;
+    std::vector<Node*> locked_path;
     tree_->lock_path(key, locked_path);
 
      
@@ -199,19 +203,20 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
     // }
 
     if (!locked_path.empty()) {
-        Node* node = tree_->get_node_by_nid(locked_path.back());
+        Node* node = locked_path.back();
         node->try_split_node(locked_path);
     }
 }
 
-void Node::try_split_node(std::vector<nid_t>& path)
+void Node::try_split_node(std::vector<Node*>& path)
 {
-    assert(path.back() == self_nid_);
+    assert(path.back() == this);
 
     if (pivots_.size() <= tree_->options_.max_node_child_number) {
         while (!path.empty()) {
-            Node* node = tree_->get_node_by_nid(path.back());
+            Node* node = path.back();
             node->write_unlock();
+            node->dec_ref();
             path.pop_back();
         }
         return;
@@ -222,6 +227,7 @@ void Node::try_split_node(std::vector<nid_t>& path)
 
     // LOG_INFO << "try_split_node, " << half_key.data();
 
+    // TODO: consider remove parent_nid_ class member
     Node* node = tree_->create_node();
     node->is_leaf_ = is_leaf_;
     node->parent_nid_ = parent_nid_;
@@ -232,8 +238,9 @@ void Node::try_split_node(std::vector<nid_t>& path)
     for (Container::iterator iter = first; iter != last; iter++) {
         if (iter->child_nid == NID_NIL) 
             break;
-        Node* n = tree_->get_node_by_nid(iter->child_nid);
-        n->parent_nid_ = node->self_nid_;
+        Node* child = tree_->get_node_by_nid(iter->child_nid);
+        child->parent_nid_ = node->self_nid_;
+        child->dec_ref();
     }
     node->pivots_.insert(node->pivots_.begin(), first, last);
     pivots_.resize(half); 
@@ -261,13 +268,16 @@ void Node::try_split_node(std::vector<nid_t>& path)
 
         path.pop_back();
         write_unlock();
+        dec_ref();
         assert(path.empty());
     } else {
         path.pop_back();
         write_unlock();
+        dec_ref();
 
         // LOG_INFO << Fmt("%ld parent ", self_nid_) << parent_nid_;
-        Node* parent = tree_->get_node_by_nid(parent_nid_);
+        // Node* parent = tree_->get_node_by_nid(parent_nid_);
+        Node* parent = path.back();
         assert(parent);
         parent->add_pivot(half_key, node->self_nid_, self_nid_);
         parent->try_split_node(path);
@@ -291,9 +301,9 @@ void Node::add_pivot(Slice key, nid_t child, nid_t child_sibling)
                    Pivot(child, msgbuf, key.clone()));
 }
 
-void Node::lock_path(const Slice& key, std::vector<nid_t>& path)
+void Node::lock_path(const Slice& key, std::vector<Node*>& path)
 {
-    path.push_back(self_nid_);
+    path.push_back(this);
 
     size_t index = find_pivot(key);
 
@@ -301,7 +311,7 @@ void Node::lock_path(const Slice& key, std::vector<nid_t>& path)
         Node* node = tree_->get_node_by_nid(pivots_[index].child_nid);
         node->write_lock();
         node->push_down_during_lock_path(pivots_[index].msgbuf);
-        assert(node->parent_nid_ == path.back());
+        assert(node->parent_nid_ == path.back()->self_nid_);
         node->lock_path(key, path);
     } else {
         assert(is_leaf_);
@@ -354,4 +364,65 @@ bool Node::constrcutor(const BlockReader& reader)
 bool Node::destructor(BlockWriter& writer)
 {
     return false;
+}
+
+void Node::set_dirty(bool dirty)
+{
+    ScopedMutex lock(mutex_);
+
+    if (!dirty_ && dirty) 
+        first_write_timestamp_ = Timestamp::now();
+
+    dirty_ = dirty;
+}
+
+bool Node::dirty() 
+{
+    ScopedMutex lock(mutex_);
+    return dirty_;
+}
+
+void Node::set_flushing(bool flushing)
+{
+    ScopedMutex lock(mutex_);
+    flushing_ = flushing;
+}
+
+bool Node::flushing()
+{
+    ScopedMutex lock(mutex_);
+    return flushing_;
+}
+
+void Node::inc_ref()
+{
+    ScopedMutex lock(mutex_);
+    refcnt_++;
+}
+
+void Node::dec_ref()
+{
+    ScopedMutex lock(mutex_);
+    assert(refcnt_ > 0);
+
+    refcnt_--;
+    last_used_timestamp_ = Timestamp::now();
+}
+
+size_t Node::refs()
+{
+    ScopedMutex lock(mutex_);
+    return refcnt_;
+}
+
+Timestamp Node::get_first_write_timestamp()
+{
+    ScopedMutex lock(mutex_);
+    return first_write_timestamp_;
+}
+
+Timestamp Node::get_last_used_timestamp()
+{
+    ScopedMutex lock(mutex_);
+    return last_used_timestamp_;
 }

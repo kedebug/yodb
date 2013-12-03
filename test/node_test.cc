@@ -11,7 +11,7 @@ TEST(BufferTree, bootstrap)
     opts.max_node_child_number = 2;
 
     BufferTree* tree = new BufferTree("", opts);
-    tree->init_tree();
+    tree->init();
     Node* n1 = tree->root_;
 
     n1->put("a", "1");

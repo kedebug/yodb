@@ -42,12 +42,12 @@ class Node {
 public:
     Node(BufferTree* tree, nid_t self)
         : tree_(tree), self_nid_(self), parent_nid_(NID_NIL), 
-          node_page_size_(0), pivots_(), rwlock_(), mutex_(),
-          modified_(false), flushing_(false)
+          refcnt_(0), node_page_size_(0), pivots_(), 
+          rwlock_(), mutex_(), dirty_(false), flushing_(false)
     {
     }
 
-    bool get(const Slice& key, Slice& value);
+    bool get(const Slice& key, Slice& value, Node* parent = NULL);
 
     bool put(const Slice& key, const Slice& value)
     {
@@ -66,7 +66,7 @@ public:
 
     // when the leaf node's number of pivot is out of limit,
     // it then will split the node and push up the split operation.
-    void try_split_node(std::vector<nid_t>& path);
+    void try_split_node(std::vector<Node*>& path);
 
     void create_first_pivot();
     // find which pivot matches the key
@@ -77,14 +77,14 @@ public:
     void maybe_push_down_or_split();
 
     // internal node would push down the msgbuf when it is full 
-    void push_down_msgbuf(MsgBuf* msgbuf, nid_t parent);
+    void push_down_msgbuf(MsgBuf* msgbuf, Node* parent);
 
     // only the leaf node would split msgbuf when it is full
     void split_msgbuf(MsgBuf* msgbuf);
 
     typedef std::vector<Pivot> Container;
 
-    void lock_path(const Slice& key, std::vector<nid_t>& path);
+    void lock_path(const Slice& key, std::vector<Node*>& path);
     void push_down_during_lock_path(MsgBuf* msgbuf);
 
     bool try_read_lock()    { return rwlock_.try_read_lock(); }
@@ -97,45 +97,18 @@ public:
     void write_unlock()     { rwlock_.write_unlock(); }
 
 
-    void set_modify(bool modified)
-    {
-        ScopedMutex lock(mutex_);
+    void set_dirty(bool modified);
+    bool dirty();
 
-        if (!modified_ && modified) 
-            first_write_timestamp_ = Timestamp::now();
+    void set_flushing(bool flushing);
+    bool flushing();
 
-        modified_ = modified;
-    }
+    size_t refs();
+    void inc_ref();
+    void dec_ref();
 
-    bool modified() 
-    {
-        ScopedMutex lock(mutex_);
-        return modified_;
-    }
-
-    void set_flushing(bool flushing)
-    {
-        ScopedMutex lock(mutex_);
-        flushing_ = flushing;
-    }
-
-    bool flushing()
-    {
-        ScopedMutex lock(mutex_);
-        return flushing_;
-    }
-
-    Timestamp get_first_write_timestamp()
-    {
-        ScopedMutex lock(mutex_);
-        return first_write_timestamp_;
-    }
-
-    Timestamp get_last_used_timestamp()
-    {
-        ScopedMutex lock(mutex_);
-        return last_used_timestamp_;
-    }
+    Timestamp get_first_write_timestamp();
+    Timestamp get_last_used_timestamp();
 
     bool constrcutor(const BlockReader& reader);
     bool destructor(BlockWriter& writer);
@@ -147,13 +120,14 @@ public:
     nid_t self_nid_;
     nid_t parent_nid_;
     bool is_leaf_;
+    size_t refcnt_;
 
     size_t node_page_size_;
     Container pivots_; 
     RWLock rwlock_;
 
     Mutex mutex_;
-    bool modified_;
+    bool dirty_;
     bool flushing_;
     Timestamp first_write_timestamp_;
     Timestamp last_used_timestamp_;

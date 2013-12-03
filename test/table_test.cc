@@ -133,6 +133,7 @@ int main()
     for (size_t i = 0; i < g_result.size(); i++)
         assert(g_result[i]);
 
+    assert(table->get_node_count() == 2 * kMaxCount);
     read_test(2 * kMaxCount); 
 
     release();

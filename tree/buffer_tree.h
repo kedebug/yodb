@@ -17,18 +17,17 @@ class Node;
 
 class BufferTree {
 public:
-    BufferTree(const std::string name, Options& opts)
-        : name_(name), 
-          options_(opts), 
-          root_(NULL),
-          node_count_(0),
-          node_map_(),
-          mutex_(),
-          mutex_lock_path_()
+    BufferTree(const std::string name, Options& opts, Cache* cache, Table* table)
+        : name_(name), options_(opts), 
+          cache_(cache), table_(table),
+          root_(NULL), node_count_(0), 
+          node_map_(), mutex_(), mutex_lock_path_()
     {
     }
 
-    bool init_tree();
+    ~BufferTree();
+
+    bool init();
     void grow_up(Node* root);
     
     bool put(const Slice& key, const Slice& value);
@@ -37,7 +36,7 @@ public:
 
     Node* create_node();
     Node* get_node_by_nid(nid_t nid);
-    void  lock_path(const Slice& key, std::vector<nid_t>& path);
+    void  lock_path(const Slice& key, std::vector<Node*>& path);
 
 private:
 public:
@@ -45,8 +44,8 @@ public:
 
     std::string name_;
     Options options_;
-    Table* table_;
     Cache* cache_;
+    Table* table_;
     Node* root_; 
     nid_t node_count_;
     std::map<nid_t, Node*> node_map_;

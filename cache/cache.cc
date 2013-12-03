@@ -57,26 +57,42 @@ void Cache::integrate(BufferTree* tree, Table* table)
 
 void Cache::put(nid_t nid, Node* node)
 {
+    assert(node->refs() == 0);
+
     maybe_eviction(); 
+
+    lock_nodes_.write_lock();
 
     assert(nodes_.find(nid) == nodes_.end());
     nodes_[nid] = node;
+    node->inc_ref();
+
+    lock_nodes_.write_unlock();
 }
 
 Node* Cache::get(nid_t nid)
 {
+    lock_nodes_.read_lock();
+
     NodeMap::iterator iter = nodes_.find(nid);
 
     if (iter != nodes_.end()) {
-        return iter->second;
+        Node* node = iter->second;
+        node->inc_ref();
+        lock_nodes_.read_unlock();
+        return node;
     }
 
     maybe_eviction();
 
     Block* block = table_->read(nid);
-    BlockReader reader(*block);
 
-    if (block == NULL) return NULL;
+    if (block == NULL) {
+        lock_nodes_.read_unlock();
+        return NULL;
+    }
+
+    BlockReader reader(*block);
 
     Node* node = tree_->create_node();
     if (!(node->constrcutor(reader))){
@@ -84,9 +100,16 @@ Node* Cache::get(nid_t nid)
     }
 
     table_->self_dealloc(block->buffer());
-
     nodes_[nid] = node;
+    node->inc_ref();
+
+    lock_nodes_.read_unlock();
+
     return node;
+}
+
+void Cache::flush()
+{
 }
 
 void Cache::write_back()
@@ -220,10 +243,11 @@ void Cache::write_complete_handler(Node* node, Slice buffer, Status status)
     node->set_flushing(false);
     table_->self_dealloc(buffer);
 
-    if (status.succ)
+    if (status.succ) {
         LOG_INFO << "write back node success, nid=" << node->self_nid_;
-    else 
+    } else {
         LOG_ERROR << "write back node failed, nid=" << node->self_nid_;
+    }
 }
 
 void Cache::maybe_eviction()

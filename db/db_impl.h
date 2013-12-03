@@ -9,7 +9,8 @@ namespace yodb {
 class DBImpl {
 public:
     DBImpl(const std::string& name, const Options& opts)
-        : name_(name), opts_(opts), tree_(NULL)
+        : name_(name), opts_(opts), file_(NULL),
+          table_(NULL), cache_(NULL), tree_(NULL)
     {
     }
 
@@ -24,6 +25,10 @@ public:
 private:
     std::string name_;
     Options opts_;
+
+    AIOFile* file_;
+    Table* table_;
+    Cache* cache_;
     BufferTree* tree_;
 };
 
