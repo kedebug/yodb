@@ -3,6 +3,7 @@
 
 #include "fs/file.h"
 #include <string>
+#include <sys/stat.h>
 #include <boost/noncopyable.hpp>
 
 namespace yodb {
@@ -12,6 +13,32 @@ public:
     Env(const std::string& dirname)
         : dirname_(dirname)
     {
+    }
+
+    bool file_exists(const std::string& filename) 
+    {
+        struct stat st;
+        memset(&st, 0, sizeof(st));
+
+        if (stat(full_path(filename).c_str(), &st) == -1) {
+            LOG_ERROR << "stat file: " << filename << " error" << strerror(errno);
+            return false;
+        }
+
+        return S_ISREG(st.st_mode);
+    }
+
+    size_t file_length(const std::string& filename)
+    {
+        struct stat st;
+        memset(&st, 0, sizeof(st));
+
+        if (stat(full_path(filename).c_str(), &st) == -1) {
+            LOG_ERROR << "stat file: " << filename << " error" << strerror(errno);
+            return 0;
+        }
+
+        return (size_t)(st.st_size);
     }
 
     AIOFile* open_aio_file(const std::string& filename)
