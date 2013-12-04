@@ -9,6 +9,8 @@ BufferTree::~BufferTree()
         root_->dec_ref();
 
     cache_->flush();
+
+    LOG_INFO << "BufferTree destructor finished";
 }
 
 bool BufferTree::init()

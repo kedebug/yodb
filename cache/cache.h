@@ -64,6 +64,23 @@ private:
     RWLock lock_nodes_;
 };
 
+class FirstWriteComparator {
+public:
+    bool operator()(Node* x, Node* y) 
+    {
+        return x->get_first_write_timestamp() < y->get_first_write_timestamp();
+    }
+};
+
+class LRUComparator {
+public:
+    bool operator()(Node* x, Node* y)
+    {
+        return x->get_last_used_timestamp() < y->get_last_used_timestamp();
+    }
+};
+
+
 } // namespace yodb
 
 #endif // _YODB_CACHE_H_

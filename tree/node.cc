@@ -54,10 +54,12 @@ bool Node::write(const Msg& msg)
         is_leaf_ ? write_unlock() : read_unlock();
         return tree_->root_->write(msg);
     }
-    size_t pivot_index = find_pivot(msg.key());
 
+    size_t pivot_index = find_pivot(msg.key());
     MsgBuf* msgbuf = pivots_[pivot_index].msgbuf;
+
     msgbuf->insert(msg);
+    set_dirty(true);
 
     maybe_push_down_or_split();
     return true;
@@ -91,9 +93,13 @@ void Node::maybe_push_down_or_split()
 void Node::create_first_pivot()
 {
     write_lock();
+
     assert(pivots_.size() == 0);
     MsgBuf* msgbuf = new MsgBuf(tree_->options_.comparator); 
+
     pivots_.insert(pivots_.begin(), Pivot(NID_NIL, msgbuf));
+    set_dirty(true);
+
     write_unlock();
 }
 
@@ -144,7 +150,8 @@ void Node::push_down_msgbuf(MsgBuf* msgbuf, Node* parent)
     }
     msgbuf->release();
     msgbuf->unlock();
-    
+    set_dirty(true);
+
     assert(parent->is_leaf_ == false);
     parent->read_unlock();
 
@@ -188,6 +195,7 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
     //          << Fmt("%d ", half) << Fmt("%d ", dstbuf->msg_count())
     //          << half_key.data();
 
+    set_dirty(true);
     write_unlock();
 
     std::vector<Node*> locked_path;
@@ -263,6 +271,7 @@ void Node::try_split_node(std::vector<Node*>& path)
         root->pivots_.insert(root->pivots_.begin(), 
                              Pivot(self_nid_, left));
 
+        root->set_dirty(true);
         tree_->grow_up(root);
         // LOG_INFO << "grow_up: " << root->self_nid_;
 
@@ -304,6 +313,9 @@ void Node::add_pivot(Slice key, nid_t child, nid_t child_sibling)
 void Node::lock_path(const Slice& key, std::vector<Node*>& path)
 {
     path.push_back(this);
+    // Every node in our locked path should be set to dirty,
+    // because we would have some push down operations during this progress.
+    set_dirty(true);
 
     size_t index = find_pivot(key);
 

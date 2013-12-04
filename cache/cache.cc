@@ -6,22 +6,6 @@
 
 using namespace yodb;
 
-class FirstWriteComparator {
-public:
-    bool operator()(Node* x, Node* y) 
-    {
-        return x->get_first_write_timestamp() < y->get_first_write_timestamp();
-    }
-};
-
-class LRUComparator {
-public:
-    bool operator()(Node* x, Node* y)
-    {
-        return x->get_last_used_timestamp() < y->get_last_used_timestamp();
-    }
-};
-
 Cache::Cache(const Options& opts)
     : options_(opts), cache_size_(0),
       alive_(false), worker_(NULL)
@@ -30,6 +14,15 @@ Cache::Cache(const Options& opts)
 
 Cache::~Cache()
 {
+    alive_ = false;
+
+    if (worker_) {
+        worker_->join();
+        delete worker_;
+        LOG_INFO << "Cache write back work thread finished.";
+    }
+
+    LOG_INFO << "Cache destructor finished";
 }
 
 bool Cache::init()
@@ -110,6 +103,26 @@ Node* Cache::get(nid_t nid)
 
 void Cache::flush()
 {
+    lock_nodes_.write_lock();
+
+    std::vector<Node*> ready_nodes;
+
+    for (NodeMap::iterator it = nodes_.begin(); it != nodes_.end(); it++) {
+        Node* node = it->second;
+
+        if (node->dirty() && !node->flushing()) {
+            node->write_lock();
+            node->set_flushing(true);
+            ready_nodes.push_back(node);
+        }
+    }
+
+    lock_nodes_.write_unlock();
+
+    if (ready_nodes.size())
+        flush_ready_nodes(ready_nodes);
+
+    table_->flush();
 }
 
 void Cache::write_back()
@@ -252,12 +265,72 @@ void Cache::write_complete_handler(Node* node, Slice buffer, Status status)
 
 void Cache::maybe_eviction()
 {
-    while (cache_size_ >= options_.cache_limited_memory) {
+    while (true) {
+        {
+            ScopedMutex lock(cache_size_mutex_);
+            if (cache_size_ < options_.cache_limited_memory)
+                break;
+        }
         evict_from_memory();
-        usleep(1000);
+        ::usleep(1000);
     }
 }
 
 void Cache::evict_from_memory()
 {
+    // Apply write lock, don't allow any get/put operation,
+    // it is guaranteed no increase reference during this period.
+    lock_nodes_.write_lock(); 
+
+    size_t total_size = 0;
+    std::vector<Node*> candidates;
+
+    for (NodeMap::iterator it = nodes_.begin(); it != nodes_.end(); it++) {
+        Node* node = it->second;
+        assert(node->self_nid_ == it->first);
+
+        size_t size = node->size();
+        total_size += size;
+
+        if (node->refs() == 0 && !node->dirty() && !node->flushing())
+            candidates.push_back(node);
+    }
+
+    {
+        ScopedMutex lock(cache_size_mutex_);
+        cache_size_ = total_size;
+    }
+
+    size_t evict_size = 0;
+    size_t goal = options_.cache_limited_memory / 100;
+    std::vector<Node*> evict_nodes;
+    LRUComparator comparator;
+
+
+    std::sort(candidates.begin(), candidates.end(), comparator);
+
+    for (size_t i = 0; i < candidates.size(); i++) {
+        Node* node = candidates[i];
+        size_t size = node->size();
+
+        assert(node->refs() == 0);
+        assert(!node->dirty());
+        assert(!node->flushing());
+
+        evict_size += size;
+        nodes_.erase(node->self_nid_);
+
+        delete node;
+
+        if (evict_size >= goal) break;
+    }
+
+    {
+        ScopedMutex lock(cache_size_mutex_);
+        cache_size_ -= evict_size;
+    }
+
+    lock_nodes_.write_unlock();
+
+    LOG_INFO << Fmt("evict %zu bytes from memory", evict_size);
 }

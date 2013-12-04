@@ -6,8 +6,6 @@ using namespace yodb;
 
 Table::~Table()
 {
-    LOG_INFO << Fmt("holes: %zu", hole_list_.size());
-
     if (!flush()) {
         LOG_ERROR << "flush error";
         assert(false);
@@ -21,8 +19,9 @@ Table::~Table()
         delete meta;
     }
 
-    LOG_INFO << Fmt("holes: %zu", hole_list_.size());
     block_index_.clear();
+
+    LOG_INFO << "Table destructor finished";
 }
 
 bool Table::flush()
