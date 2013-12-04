@@ -43,12 +43,7 @@ public:
 // Table for permanent storage
 class Table : boost::noncopyable {
 public:
-    Table(AIOFile* file, uint64_t file_size)
-        : file_(file), file_size_(file_size), offset_(0),
-          fly_readers_(0), fly_writers_(0)
-    {
-    }
-
+    Table(AIOFile* file, uint64_t file_size);
     ~Table();
 
     bool init(bool create = false);

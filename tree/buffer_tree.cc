@@ -2,6 +2,15 @@
 
 using namespace yodb;
 
+BufferTree::BufferTree(const std::string name, Options& opts, 
+                       Cache* cache, Table* table)
+    : name_(name), options_(opts), 
+      cache_(cache), table_(table),
+      root_(NULL), node_count_(0), 
+      node_map_(), mutex_(), mutex_lock_path_()
+{
+}
+
 BufferTree::~BufferTree()
 {
     // root_ is always referenced

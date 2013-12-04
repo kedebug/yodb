@@ -22,9 +22,16 @@ public:
     {
     }
 
-    size_t size()
+    size_t size() const
     {
-        return sizeof(MsgType) + sizeof(Slice) * 2 + key_.size() + value_.size(); 
+        size_t size = 0;
+
+        size += 1;                      // MsgType->uint8_t
+        size += 4 + key_.size();        // Slice->(see BlockWriter<<(Slice))
+        if (type_ == Put)
+            size += 4 + value_.size();  // Same as key_
+
+        return size;
     }
 
     void release()
@@ -49,14 +56,12 @@ public:
     typedef std::vector<Msg> Container;
     typedef Container::iterator Iterator;
 
-    MsgBuf(Comparator* comparator)
-        : msgbuf_(), 
-          comparator_(comparator),
-          mutex_()
-    {
-    }
+    MsgBuf(Comparator* comparator);
+    ~MsgBuf();
 
     size_t msg_count();
+
+    size_t size();
 
     // release the ownership of the Msg, but not delete them.
     void release();
@@ -66,6 +71,9 @@ public:
 
     void insert(const Msg& msg);
     void insert(Iterator pos, Iterator first, Iterator last);
+
+    bool constrcutor(BlockReader& reader);
+    bool destructor(BlockWriter& writer);
 
     // resize the msgbuf, release but not delete the truncated Msg
     void resize(size_t size);
@@ -80,6 +88,7 @@ public:
     Container msgbuf_;
     Comparator* comparator_;
     Mutex mutex_;
+    size_t size_;
 };
 
 } // namespace yodb

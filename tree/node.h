@@ -5,6 +5,7 @@
 #include "sys/rwlock.h"
 #include "util/timestamp.h"
 #include "util/slice.h"
+#include "util/block.h"
 #include "util/logger.h"
 
 #include <stdint.h>
@@ -22,30 +23,25 @@ class Pivot {
 public:
     Pivot() {}
     Pivot(nid_t child, MsgBuf* mbuf, Slice key = Slice())
-        : msgbuf(mbuf), child_nid(child), left_most_key_(key) {}
+        : msgbuf(mbuf), child_nid(child), left_most_key(key) {}
 
-    Slice left_most_key() 
-    {
-        // when left_most_key() function is called, 
-        // the left_most_key must be exists(Actually, bad design).
-        assert(left_most_key_.size());
-        return left_most_key_;
-    }
+    // Slice left_most_key() 
+    // {
+    //     // when left_most_key() function is called, 
+    //     // the left_most_key must be exists(Actually, bad design).
+    //     assert(left_most_key_.size());
+    //     return left_most_key_;
+    // }
 
     MsgBuf* msgbuf;
     nid_t child_nid;
-private:
-    Slice left_most_key_;
+    Slice left_most_key;
 };
 
 class Node {
 public:
-    Node(BufferTree* tree, nid_t self)
-        : tree_(tree), self_nid_(self), parent_nid_(NID_NIL), 
-          refcnt_(0), node_page_size_(0), pivots_(), 
-          rwlock_(), mutex_(), dirty_(false), flushing_(false)
-    {
-    }
+    Node(BufferTree* tree, nid_t self);
+    ~Node();
 
     bool get(const Slice& key, Slice& value, Node* parent = NULL);
 
@@ -110,7 +106,7 @@ public:
     Timestamp get_first_write_timestamp();
     Timestamp get_last_used_timestamp();
 
-    bool constrcutor(const BlockReader& reader);
+    bool constrcutor(BlockReader& reader);
     bool destructor(BlockWriter& writer);
 
 private:

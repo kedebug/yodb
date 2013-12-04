@@ -3,6 +3,23 @@
 
 using namespace yodb;
 
+Node::Node(BufferTree* tree, nid_t self)
+    : tree_(tree), self_nid_(self), parent_nid_(NID_NIL), 
+      refcnt_(0), node_page_size_(0), pivots_(), 
+      rwlock_(), mutex_(), dirty_(false), flushing_(false)
+{
+}
+
+Node::~Node()
+{
+    for (size_t i = 0; i < pivots_.size(); i++) {
+        Pivot& pivot = pivots_[i];
+        pivot.left_most_key.release();
+        delete pivot.msgbuf;
+    }
+    pivots_.clear();
+}
+
 bool Node::get(const Slice& key, Slice& value, Node* parent)
 {
     read_lock();
@@ -112,7 +129,7 @@ size_t Node::find_pivot(Slice key)
     Comparator* comp = tree_->options_.comparator;
 
     for (size_t i = 1; i < pivots_.size(); i++) {
-        if (comp->compare(key, pivots_[i].left_most_key()) < 0) {
+        if (comp->compare(key, pivots_[i].left_most_key) < 0) {
             return pivot;
         }
         pivot++;
@@ -134,7 +151,7 @@ void Node::push_down_msgbuf(MsgBuf* msgbuf, Node* parent)
     Comparator* comp = tree_->options_.comparator;
 
     while (last != msgbuf->end() && index < pivots_.size()) {
-        if (comp->compare(last->key(), pivots_[index].left_most_key()) < 0) {
+        if (comp->compare(last->key(), pivots_[index].left_most_key) < 0) {
             last++;
         } else {
             while (first != last) {
@@ -231,7 +248,7 @@ void Node::try_split_node(std::vector<Node*>& path)
     }
 
     size_t half = pivots_.size() / 2;
-    Slice half_key = pivots_[half].left_most_key();
+    Slice half_key = pivots_[half].left_most_key;
 
     // LOG_INFO << "try_split_node, " << half_key.data();
 
@@ -342,7 +359,7 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf)
     Comparator* comp = tree_->options_.comparator;
 
     while (last != msgbuf->end() && index < pivots_.size()) {
-        if (comp->compare(last->key(), pivots_[index].left_most_key()) < 0) {
+        if (comp->compare(last->key(), pivots_[index].left_most_key) < 0) {
             last++;
         } else {
             while (first != last) {
@@ -365,17 +382,60 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf)
 
 size_t Node::write_back_size()
 {
-    return 0;
+    size_t size = 0;
+
+    size += 8;      // self_nid_
+    size += 8;      // parent_nid_
+    size += 1;      // is_leaf
+    size += 4;      // number of pivots
+
+    for (size_t i = 0; i < pivots_.size(); i++) {
+        size += 8;                                      // child 
+        size += 4 + pivots_[i].left_most_key.size();    // left_most_key
+        size += pivots_[i].msgbuf->size();              // msgbuf size
+    }
+
+    return size;
 }
 
-bool Node::constrcutor(const BlockReader& reader)
+bool Node::constrcutor(BlockReader& reader)
 {
-    return false;
+    reader >> self_nid_ >> parent_nid_ >> is_leaf_;
+
+    uint32_t pivots = 0;
+    reader >> pivots;
+    assert(pivots > 0);
+
+    pivots_.reserve(pivots);
+
+    for (size_t i = 0; i < pivots; i++) {
+        nid_t child;
+        MsgBuf* msgbuf = new MsgBuf(tree_->options_.comparator);
+        Slice left_most_key;
+
+        reader >> child >> left_most_key;
+        msgbuf->constrcutor(reader);
+
+        pivots_.push_back(Pivot(child, msgbuf, left_most_key));
+    }
+
+    return reader.ok();
 }
 
 bool Node::destructor(BlockWriter& writer)
 {
-    return false;
+    writer << self_nid_ << parent_nid_ << is_leaf_;
+
+    uint32_t pivots = pivots_.size();
+    writer << pivots;
+
+    for (size_t i = 0; i < pivots; i++) {
+        writer << pivots_[i].child_nid
+               << pivots_[i].left_most_key;
+        pivots_[i].msgbuf->destructor(writer);
+    }
+
+    return writer.ok();
 }
 
 void Node::set_dirty(bool dirty)
