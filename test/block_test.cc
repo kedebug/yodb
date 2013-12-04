@@ -21,8 +21,9 @@ TEST(Block, RW)
 
     Slice s1("abcedf");
     Slice s2("cdefgh");
+    Slice empty1;
 
-    writer << s1 << s2;
+    writer << empty1 << s1 << s2;
     EXPECT_TRUE(writer.ok());
 
     bool rv;
@@ -41,8 +42,9 @@ TEST(Block, RW)
     EXPECT_EQ(ru32, u32);
     EXPECT_EQ(ru64, u64);
 
-    Slice s3, s4;
-    reader >> s3 >> s4;
+    Slice s3, s4, empty2;
+    reader >> empty2 >> s3 >> s4;
     EXPECT_EQ(s1, s3);
     EXPECT_EQ(s2, s4);
+    EXPECT_EQ(empty1, empty2);
 }

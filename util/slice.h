@@ -48,7 +48,9 @@ public:
 
     Slice clone() const 
     {
-        assert(size_);
+        if (size_ == 0)
+            return Slice("", 0, true);
+
         char* s = new char[size_];
         assert(s);
         memcpy(s, data_, size_);
@@ -65,7 +67,9 @@ public:
     void release() 
     {
         assert(is_self_alloc_);
-        assert(size_);
+
+        if (size_ == 0) return;
+
         delete[] data_;
         clear();
     }
