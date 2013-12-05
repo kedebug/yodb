@@ -5,7 +5,7 @@ using namespace yodb;
 
 Node::Node(BufferTree* tree, nid_t self)
     : tree_(tree), self_nid_(self), parent_nid_(NID_NIL), 
-      refcnt_(0), node_page_size_(0), pivots_(), 
+      refcnt_(0), node_page_size_(sizeof(Node)), pivots_(), 
       rwlock_(), mutex_(), dirty_(false), flushing_(false)
 {
 }
@@ -14,7 +14,8 @@ Node::~Node()
 {
     for (size_t i = 0; i < pivots_.size(); i++) {
         Pivot& pivot = pivots_[i];
-        pivot.left_most_key.release();
+        if (pivot.left_most_key.size())
+            pivot.left_most_key.release();
         delete pivot.msgbuf;
     }
     pivots_.clear();
@@ -74,9 +75,11 @@ bool Node::write(const Msg& msg)
 
     size_t pivot_index = find_pivot(msg.key());
     MsgBuf* msgbuf = pivots_[pivot_index].msgbuf;
+    size_t size = msgbuf->size();
 
     msgbuf->insert(msg);
     set_dirty(true);
+    node_page_size_ += msgbuf->size() - size;
 
     maybe_push_down_or_split();
     return true;
@@ -115,6 +118,7 @@ void Node::create_first_pivot()
     MsgBuf* msgbuf = new MsgBuf(tree_->options_.comparator); 
 
     pivots_.insert(pivots_.begin(), Pivot(NID_NIL, msgbuf));
+    node_page_size_ += msgbuf->size();
     set_dirty(true);
 
     write_unlock();
@@ -139,7 +143,7 @@ size_t Node::find_pivot(Slice key)
 
 void Node::push_down_msgbuf(MsgBuf* msgbuf, Node* parent)
 {
-    //LOG_INFO << "push_down_msgbuf, " << Fmt("self=%d", self_nid_);
+    // LOG_INFO << "push_down_msgbuf, " << Fmt("self=%d", self_nid_);
 
     is_leaf_ ? write_lock() : read_lock();
 
@@ -155,19 +159,28 @@ void Node::push_down_msgbuf(MsgBuf* msgbuf, Node* parent)
             last++;
         } else {
             while (first != last) {
+                size_t size = pivots_[index-1].msgbuf->size();
                 pivots_[index-1].msgbuf->insert(*first);
+                node_page_size_ += pivots_[index-1].msgbuf->size() - size;
                 first++;
             }
             index++;
         }
     }
     while (first != msgbuf->end()) {
+        size_t size = pivots_[index-1].msgbuf->size();
         pivots_[index-1].msgbuf->insert(*first);
+        node_page_size_ += pivots_[index-1].msgbuf->size() - size;
         first++;
     }
+    size_t size = msgbuf->size();
     msgbuf->release();
     msgbuf->unlock();
     set_dirty(true);
+    parent->set_dirty(true);
+    parent->node_page_size_ -= size - msgbuf->size(); 
+
+    assert(parent->node_page_size_ > 0);
 
     assert(parent->is_leaf_ == false);
     parent->read_unlock();
@@ -196,6 +209,7 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
 
     Slice half_key = (srcbuf->begin() + half)->key();
     Slice key = srcbuf->begin()->key();
+    size_t size = srcbuf->size();
 
     MsgBuf::Iterator first = srcbuf->begin() + half;
     MsgBuf::Iterator last  = srcbuf->end();
@@ -207,6 +221,8 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
 
     pivots_.insert(pivots_.begin() + find_pivot(key) + 1, 
                    Pivot(NID_NIL, dstbuf, half_key.clone()));
+
+    node_page_size_ += srcbuf->size() + dstbuf->size() - size;
 
     // LOG_INFO << "split_msgbuf, " 
     //          << Fmt("%d ", half) << Fmt("%d ", dstbuf->msg_count())
@@ -249,6 +265,7 @@ void Node::try_split_node(std::vector<Node*>& path)
 
     size_t half = pivots_.size() / 2;
     Slice half_key = pivots_[half].left_most_key;
+    size_t half_size = 0;
 
     // LOG_INFO << "try_split_node, " << half_key.data();
 
@@ -261,15 +278,23 @@ void Node::try_split_node(std::vector<Node*>& path)
     Container::iterator last  = pivots_.end();
 
     for (Container::iterator iter = first; iter != last; iter++) {
-        if (iter->child_nid == NID_NIL) 
-            break;
-        Node* child = tree_->get_node_by_nid(iter->child_nid);
-        child->parent_nid_ = node->self_nid_;
-        child->dec_ref();
+        if (iter->child_nid != NID_NIL) {
+            Node* child = tree_->get_node_by_nid(iter->child_nid);
+            child->parent_nid_ = node->self_nid_;
+            child->dec_ref();
+        }
+
+        half_size += iter->msgbuf->size();
     }
     node->pivots_.insert(node->pivots_.begin(), first, last);
-    pivots_.resize(half); 
+    node->node_page_size_ += half_size;
+    node->set_dirty(true);
 
+    pivots_.resize(half); 
+    // LOG_INFO << Fmt("before: %zu, ", node_page_size_) 
+    //          << Fmt("decrease: %zu", half_size);
+    assert(node_page_size_ > half_size);
+    node_page_size_ -= half_size;
 
     if (parent_nid_ == NID_NIL) {
         // assert(path.empty());
@@ -289,6 +314,7 @@ void Node::try_split_node(std::vector<Node*>& path)
                              Pivot(self_nid_, left));
 
         root->set_dirty(true);
+        root->node_page_size_ += left->size() + right->size();
         tree_->grow_up(root);
         // LOG_INFO << "grow_up: " << root->self_nid_;
 
@@ -325,10 +351,13 @@ void Node::add_pivot(Slice key, nid_t child, nid_t child_sibling)
 
     pivots_.insert(pivots_.begin() + pivot_index + 1, 
                    Pivot(child, msgbuf, key.clone()));
+
+    node_page_size_ += msgbuf->size();
 }
 
 void Node::lock_path(const Slice& key, std::vector<Node*>& path)
 {
+    // LOG_INFO << "lock_path: " << self_nid_;
     path.push_back(this);
     // Every node in our locked path should be set to dirty,
     // because we would have some push down operations during this progress.
@@ -339,7 +368,7 @@ void Node::lock_path(const Slice& key, std::vector<Node*>& path)
     if (pivots_[index].child_nid != NID_NIL) {
         Node* node = tree_->get_node_by_nid(pivots_[index].child_nid);
         node->write_lock();
-        node->push_down_during_lock_path(pivots_[index].msgbuf);
+        node->push_down_during_lock_path(pivots_[index].msgbuf, this);
         assert(node->parent_nid_ == path.back()->self_nid_);
         node->lock_path(key, path);
     } else {
@@ -349,8 +378,10 @@ void Node::lock_path(const Slice& key, std::vector<Node*>& path)
     }
 }
 
-void Node::push_down_during_lock_path(MsgBuf* msgbuf)
+void Node::push_down_during_lock_path(MsgBuf* msgbuf, Node* parent)
 {
+    if (msgbuf->msg_count() == 0) return; 
+
     msgbuf->lock();
 
     size_t index = 1;
@@ -365,7 +396,9 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf)
             while (first != last) {
                 // LOG_INFO << "push_down_during_lock_path, msg, " 
                 //          << first->key().data();
+                size_t size = pivots_[index-1].msgbuf->size();
                 pivots_[index-1].msgbuf->insert(*first);
+                node_page_size_ += pivots_[index-1].msgbuf->size() - size;
                 first++;
             }
             index++;
@@ -373,11 +406,26 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf)
     }
     while (first != msgbuf->end()) {
         // LOG_INFO << "push_down_during_lock_path, msg, " << first->key().data();
+        size_t size = pivots_[index-1].msgbuf->size();
         pivots_[index-1].msgbuf->insert(*first);
+        node_page_size_ += pivots_[index-1].msgbuf->size() - size;
         first++;
     }
+    if (parent->node_page_size_ < msgbuf->size()) {
+        LOG_INFO << Fmt("node page: %zu, ", parent->node_page_size_)
+                 << Fmt("msgbuf size: %zu", msgbuf->size());
+        assert(false);
+    }
+    // LOG_INFO << Fmt("before: %zu, ", parent->node_page_size_)
+    //          << Fmt("decrease: %zu", msgbuf->size());
+    parent->node_page_size_ -= msgbuf->size();
     msgbuf->release();
     msgbuf->unlock();
+}
+
+size_t Node::size()
+{
+    return node_page_size_ + pivots_.size() * (sizeof(MsgBuf) + 8 + sizeof(Pivot));
 }
 
 size_t Node::write_back_size()
@@ -415,6 +463,7 @@ bool Node::constrcutor(BlockReader& reader)
 
         reader >> child >> left_most_key;
         msgbuf->constrcutor(reader);
+        node_page_size_ += msgbuf->size();
 
         pivots_.push_back(Pivot(child, msgbuf, left_most_key));
     }

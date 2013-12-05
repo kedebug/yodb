@@ -28,6 +28,7 @@ public:
     bool get(const Slice& key, Slice& value);
 
     Node* create_node();
+    Node* create_node(nid_t nid);
     Node* get_node_by_nid(nid_t nid);
     void  lock_path(const Slice& key, std::vector<Node*>& path);
 

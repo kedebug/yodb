@@ -55,7 +55,7 @@ public:
         return write(Msg(Del, key.clone()));
     }
     
-    size_t size() { return node_page_size_; }
+    size_t size();
     size_t write_back_size();
 
     bool write(const Msg& msg);
@@ -81,7 +81,7 @@ public:
     typedef std::vector<Pivot> Container;
 
     void lock_path(const Slice& key, std::vector<Node*>& path);
-    void push_down_during_lock_path(MsgBuf* msgbuf);
+    void push_down_during_lock_path(MsgBuf* msgbuf, Node* parent);
 
     bool try_read_lock()    { return rwlock_.try_read_lock(); }
     bool try_write_lock()   { return rwlock_.try_write_lock(); }

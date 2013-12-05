@@ -40,8 +40,8 @@ bool AIOFile::open()
 void AIOFile::close()
 {
     if (closed_ == false) {
+        closed_ = true;
         thread_->join();
-        closed_ = false;
         delete thread_;
         
         int status = io_destroy(ioctx_);
@@ -108,7 +108,7 @@ void AIOFile::async_read(uint64_t offset, Slice& buffer, Callback cb)
 
         if (-status == EAGAIN) {
             usleep(1000);
-        } else if (status < 0){
+        } else if (status < 0) {
             LOG_ERROR << "io_submit error: " << strerror(-status);
             request->complete(status);
             delete request;
@@ -135,7 +135,7 @@ void AIOFile::async_write(uint64_t offset, const Slice& buffer, Callback cb)
 
         if (-status == EAGAIN) {
             usleep(1000);
-        } else if (status < 0){
+        } else if (status < 0) {
             LOG_ERROR << "io_submit error: " << strerror(-status);
             request->complete(status);
             delete request;
@@ -155,12 +155,14 @@ void AIOFile::handle_io_complete()
         timeout.tv_nsec = 100000000;
 
         int num_events = io_getevents(ioctx_, 1, MAX_AIO_EVENTS, events, &timeout);
+
         if (num_events < 0) {
-            LOG_ERROR << "io_getevents error: " << strerror(-num_events);
-            if (-num_events != EINTR) 
+            if (-num_events != EINTR) {
+                LOG_ERROR << "io_getevents error: " << strerror(-num_events);
                 break;
-            else 
+            } else {
                 continue;
+            }
         }
 
         for (int i = 0; i < num_events; i++) {

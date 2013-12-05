@@ -15,7 +15,6 @@ Cache::Cache(const Options& opts)
 Cache::~Cache()
 {
     alive_ = false;
-
     if (worker_) {
         worker_->join();
         delete worker_;
@@ -35,6 +34,7 @@ bool Cache::init()
         return false;
     }
 
+    worker_->run();
     return true;
 }
 
@@ -76,27 +76,29 @@ Node* Cache::get(nid_t nid)
         return node;
     }
 
+    lock_nodes_.read_unlock();
+
     maybe_eviction();
 
     Block* block = table_->read(nid);
-
-    if (block == NULL) {
-        lock_nodes_.read_unlock();
-        return NULL;
-    }
+    if (block == NULL) return NULL;
 
     BlockReader reader(*block);
 
-    Node* node = tree_->create_node();
+    Node* node = tree_->create_node(nid);
     if (!(node->constrcutor(reader))){
         assert(false);
     }
 
     table_->self_dealloc(block->buffer());
+
+    lock_nodes_.write_lock();
+
+    assert(nodes_.find(nid) == nodes_.end());
     nodes_[nid] = node;
     node->inc_ref();
 
-    lock_nodes_.read_unlock();
+    lock_nodes_.write_unlock();
 
     return node;
 }
@@ -134,7 +136,7 @@ void Cache::write_back()
         size_t total_size = 0;
         size_t dirty_size = 0;
         size_t expired_size = 0;
-        size_t goal = options_.cache_dirty_node_expire / 100;
+        size_t goal = options_.cache_limited_memory / 100;
 
         lock_nodes_.read_lock();
 
@@ -147,7 +149,7 @@ void Cache::write_back()
             if (node->dirty()) {
                 dirty_size += size;
 
-                bool expire = (double)options_.cache_dirty_node_expire < 
+                bool expire = 20.0 * options_.cache_dirty_node_expire < 
                         time_interval(now, node->get_first_write_timestamp());
 
                 if (expire && !node->flushing()) {
@@ -156,7 +158,11 @@ void Cache::write_back()
                 }
             }
         }
-        
+
+        LOG_INFO << Fmt("Memory total size: %zuK, ", total_size / 1024)
+                 << Fmt("expire size: %zuK, ", expired_size / 1024)
+                 << Fmt("cache size: %zuK", options_.cache_limited_memory / 1024);
+
         lock_nodes_.read_unlock();
         {
             ScopedMutex lock(cache_size_mutex_);
@@ -181,8 +187,10 @@ void Cache::write_back()
             if (flush_size > goal) break;
         }
 
+        LOG_INFO << Fmt("Memory dirty size: %zuK", dirty_size / 1024);
+
         bool maybe = (dirty_size - flush_size) >
-                (options_.cache_limited_memory * 30 / 100);
+                (options_.cache_limited_memory / 100 * 30);
 
         if (maybe && flush_size < goal) {
             lock_nodes_.read_lock();
@@ -210,10 +218,12 @@ void Cache::write_back()
             }
         }
         
+        LOG_INFO << Fmt("Memory flush size: %zuK", flush_size / 1024);
+
         if (flush_nodes.size())
             flush_ready_nodes(flush_nodes);
 
-        ::usleep(100 * 1000); // 100ms
+        ::usleep(1000 * 1000); // 1s
     }
 }
 
@@ -256,9 +266,7 @@ void Cache::write_complete_handler(Node* node, Slice buffer, Status status)
     node->set_flushing(false);
     table_->self_dealloc(buffer);
 
-    if (status.succ) {
-        LOG_INFO << "write back node success, nid=" << node->self_nid_;
-    } else {
+    if (!status.succ) {
         LOG_ERROR << "write back node failed, nid=" << node->self_nid_;
     }
 }
@@ -332,5 +340,5 @@ void Cache::evict_from_memory()
 
     lock_nodes_.write_unlock();
 
-    LOG_INFO << Fmt("evict %zu bytes from memory", evict_size);
+    LOG_INFO << Fmt("evict %zuK bytes from memory", evict_size / 1024);
 }

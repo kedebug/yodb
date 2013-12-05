@@ -100,15 +100,19 @@ bool Table::init(bool create)
             LOG_ERROR << "must be load the wrong file";
             return false;
         }
+
         if (!load_superblock()) {
             LOG_ERROR << "load superblock error";
             return false;
         }
+        LOG_INFO << "load_superblock success";
+
         if (superblock_.index_meta.offset) {
             if (!load_index()) {
                 LOG_ERROR << "load index error";
                 return false;
             }
+            LOG_INFO << "load_index success";
         }
 
         init_holes();
@@ -145,7 +149,7 @@ void Table::init_holes()
         prev = curr;
     }
 
-    if (offset_set.size())
+    if (offset_set.size() > 1)
         offset_ = offset_set.rbegin()->second->offset +
             PAGE_ROUND_UP(offset_set.rbegin()->second->total_size);
     else

@@ -14,8 +14,13 @@ BufferTree::BufferTree(const std::string name, Options& opts,
 BufferTree::~BufferTree()
 {
     // root_ is always referenced
-    if (root_)
+    if (root_) {
         root_->dec_ref();
+        assert(root_->refs() == 0);
+        table_->set_root_nid(root_->self_nid_);
+    }
+
+    LOG_INFO << Fmt("%zu nodes created", node_count_);
 
     cache_->flush();
 
@@ -54,9 +59,10 @@ void BufferTree::grow_up(Node* root)
 
 Node* BufferTree::create_node()
 {
-    ScopedMutex lock(mutex_);
-
-    ++node_count_;
+    {
+        ScopedMutex lock(mutex_);
+        ++node_count_;
+    }
 
     nid_t nid = node_count_;
     Node* node = new Node(this, nid);
@@ -67,11 +73,15 @@ Node* BufferTree::create_node()
     return node;
 }
 
+Node* BufferTree::create_node(nid_t nid)
+{
+    return new Node(this, nid);
+}
+
 Node* BufferTree::get_node_by_nid(nid_t nid)
 {
-    ScopedMutex lock(mutex_);
-    assert(nid != NID_NIL);
-    assert(nid <= node_count_);
+    // assert(nid != NID_NIL);
+    // assert(nid <= node_count_);
 
     return cache_->get(nid);
     // return node_map_[nid];
@@ -98,10 +108,11 @@ void BufferTree::lock_path(const Slice& key, std::vector<Node*>& path)
 bool BufferTree::put(const Slice& key, const Slice& value)
 {
     assert(root_);
-
-    root_->inc_ref();
-    bool succ = root_->put(key, value);
-    root_->dec_ref();
+    
+    Node* root = root_;
+    root->inc_ref();
+    bool succ = root->put(key, value);
+    root->dec_ref();
 
     return succ;
 }
@@ -110,9 +121,10 @@ bool BufferTree::del(const Slice& key)
 {
     assert(root_);
 
-    root_->inc_ref();
-    bool succ = root_->del(key);
-    root_->dec_ref();
+    Node* root = root_;
+    root->inc_ref();
+    bool succ = root->del(key);
+    root->dec_ref();
 
     return succ;
 }
@@ -121,9 +133,10 @@ bool BufferTree::get(const Slice& key, Slice& value)
 {
     assert(root_);
 
-    root_->inc_ref();
-    bool succ = root_->get(key, value);
-    root_->dec_ref();
+    Node* root = root_;
+    root->inc_ref();
+    bool succ = root->get(key, value);
+    root->dec_ref();
 
     return succ;
 }

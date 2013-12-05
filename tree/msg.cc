@@ -108,8 +108,9 @@ bool MsgBuf::constrcutor(BlockReader& reader)
 
     uint32_t count = 0;
     reader >> count;
-    assert(count > 0);
     
+    if (count == 0) return true;
+
     msgbuf_.reserve(count);
 
     for (size_t i = 0; i < count; i++) {
