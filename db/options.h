@@ -14,7 +14,7 @@ public:
         env = NULL;
         max_node_child_number = 8;
         max_node_msg_count    = 1024;
-        cache_limited_memory  = 1 << 26;
+        cache_limited_memory  = 1 << 25;
         cache_dirty_node_expire = 1;
     }
     Comparator* comparator;

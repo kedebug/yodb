@@ -86,6 +86,11 @@ Node* Cache::get(nid_t nid)
     BlockReader reader(*block);
 
     Node* node = tree_->create_node(nid);
+
+    assert(node->self_nid_ == nid);
+    if (nid == 50) {
+        LOG_INFO << "nid: 50, size=" << block->size();
+    }
     if (!(node->constrcutor(reader))){
         assert(false);
     }
@@ -111,6 +116,7 @@ void Cache::flush()
 
     for (NodeMap::iterator it = nodes_.begin(); it != nodes_.end(); it++) {
         Node* node = it->second;
+        assert(node->refs() == 0);
 
         if (node->dirty() && !node->flushing()) {
             node->write_lock();
@@ -149,7 +155,7 @@ void Cache::write_back()
             if (node->dirty()) {
                 dirty_size += size;
 
-                bool expire = 20.0 * options_.cache_dirty_node_expire < 
+                bool expire = 10.0 * options_.cache_dirty_node_expire < 
                         time_interval(now, node->get_first_write_timestamp());
 
                 if (expire && !node->flushing()) {
@@ -249,13 +255,13 @@ void Cache::flush_ready_nodes(std::vector<Node*>& ready_nodes)
             boost::bind(&Cache::write_complete_handler, this, node, buffer, _1)); 
     }
 
-    Timestamp now = Timestamp::now();
-    double time = 1000000 * 60;
-    if (time_interval(now, last_checkpoint_timestamp) > time) {
-        table_->flush_right_now();
-        table_->truncate();
-        last_checkpoint_timestamp = now;
-    }
+    // Timestamp now = Timestamp::now();
+    // double time = 1.0;
+    // if (time_interval(now, last_checkpoint_timestamp) > time) {
+    //     table_->flush_right_now();
+    //     table_->truncate();
+    //     last_checkpoint_timestamp = now;
+    // }
 }
 
 void Cache::write_complete_handler(Node* node, Slice buffer, Status status)

@@ -12,10 +12,10 @@ Table::Table(AIOFile* file, uint64_t file_size)
 
 Table::~Table()
 {
-    if (!flush()) {
-        LOG_ERROR << "flush error";
-        assert(false);
-    }
+    // if (!flush()) {
+    //     LOG_ERROR << "flush error";
+    //     assert(false);
+    // }
 
     BlockIndex::iterator iter;
     ScopedMutex lock(block_index_mutex_);
@@ -448,6 +448,8 @@ Block* Table::read(nid_t nid)
         assert(meta);
     }
 
+    if (nid == 50)
+        LOG_INFO << "nid=50, read offset=" << meta->offset;
     Block* block = read_block(*meta, 0, meta->total_size); 
 
     //LOG_INFO << Fmt("read node success, nid=%zu", nid);
@@ -473,6 +475,13 @@ void Table::async_write(nid_t nid, Block& block, uint32_t index_size, Callback c
     //          << Fmt("offset=%zu, ", context->meta.offset)
     //          << Fmt("size=%zu", block.buffer().size());
 
+    if (nid == 50) {
+        BlockReader reader(block);
+        nid_t self, parent;
+        reader >> self >> parent;
+        LOG_INFO << Fmt("self=%zu, ", self) << Fmt("parent=%zu, ", parent)
+                 << Fmt("write offset=%zu, ", context->meta.offset);
+    }
     file_->async_write(context->meta.offset, block.buffer(), 
                 boost::bind(&Table::async_write_handler, this, context, _1));
 }
@@ -526,22 +535,32 @@ uint64_t Table::get_room(uint32_t size)
 
 Block* Table::read_block(BlockMeta& meta, uint32_t offset, uint32_t size)
 {
-    uint32_t align_offset = PAGE_ROUND_DOWN(offset);
-    uint32_t fixed_size = size + (offset - align_offset);
+    // uint32_t align_offset = PAGE_ROUND_DOWN(offset);
+    // uint32_t fixed_size = size + (offset - align_offset);
 
-    Slice buffer = self_alloc(fixed_size);
-    if (buffer.size() == 0) {
-        LOG_ERROR << "self_alloc error";
-        return NULL;
-    }
+    // Slice buffer = self_alloc(fixed_size);
+    // if (buffer.size() == 0) {
+    //     LOG_ERROR << "self_alloc error";
+    //     return NULL;
+    // }
 
-    if (!read_file(meta.offset + align_offset, buffer)) {
+    // if (!read_file(meta.offset + align_offset, buffer)) {
+    //     LOG_ERROR << "read_file failed";
+    //     self_dealloc(buffer);
+    //     return NULL;
+    // }
+
+    assert(offset == 0);
+    Slice buffer = self_alloc(size);
+    assert(buffer.size());
+
+    if (!read_file(meta.offset, buffer)) {
         LOG_ERROR << "read_file failed";
         self_dealloc(buffer);
         return NULL;
     }
 
-    return new Block(buffer, offset - align_offset, size);
+    return new Block(buffer, 0, size);
 }
 
 bool Table::read_block_meta(BlockMeta& meta, BlockReader& reader)
