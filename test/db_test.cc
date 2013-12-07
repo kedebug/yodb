@@ -7,7 +7,7 @@
 
 using namespace yodb;
 
-const uint64_t kMaxCount = 1000 * 1000;
+const uint64_t kMaxCount = 10 * 1000 * 1000;
 
 void write(DBImpl* db)
 {
@@ -24,6 +24,8 @@ void write(DBImpl* db)
 
 void read(DBImpl* db)
 {
+    uint64_t read_failed_count = 0;
+
     for (uint64_t i = 0; i < kMaxCount; i++) {
         char buffer[16] = {0};
         sprintf(buffer, "%08ld", i);
@@ -37,18 +39,20 @@ void read(DBImpl* db)
             LOG_INFO << "Read 10000 success";
 
         if (key.compare(value) != 0)
-            LOG_INFO << "key=" << key.data()
-                     << ", value=" << value.data() << ", failed";
+            read_failed_count++;
         // else 
         //    printf("key=%s, get=%s, success\n", key.data(), value.data());
 
     } 
+
+    LOG_INFO << Fmt("%zu read failed", read_failed_count);
 }
 
 int main()
 {
     Options opts;
     opts.comparator = new LexicalComparator();
+    opts.cache_limited_memory = 1 << 26;
     opts.env = new Env("/home/kedebug/develop/yodb/bin");
 
     DBImpl* db = new DBImpl("second", opts);

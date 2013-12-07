@@ -99,11 +99,6 @@ void Node::maybe_push_down_or_split()
     }
     if (pivots_[index].child_nid != NID_NIL) {
         MsgBuf* msgbuf = pivots_[index].msgbuf;
-        if (pivots_[index].child_nid == 50) {
-            for (size_t i = 0; i < pivots_.size(); i++)
-                LOG_INFO << pivots_[i].child_nid;
-            LOG_INFO << "round end";
-        }
         Node* node = tree_->get_node_by_nid(pivots_[index].child_nid);
         node->push_down_msgbuf(msgbuf, this);
         node->dec_ref();

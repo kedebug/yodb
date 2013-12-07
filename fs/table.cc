@@ -12,10 +12,10 @@ Table::Table(AIOFile* file, uint64_t file_size)
 
 Table::~Table()
 {
-    // if (!flush()) {
-    //     LOG_ERROR << "flush error";
-    //     assert(false);
-    // }
+    if (!flush()) {
+        LOG_ERROR << "flush error";
+        assert(false);
+    }
 
     BlockIndex::iterator iter;
     ScopedMutex lock(block_index_mutex_);
@@ -224,7 +224,7 @@ bool Table::get_hole(uint32_t size, uint64_t& offset)
             offset = iter->offset;
             iter->offset += size;
             return true;
-        } else {
+        } else if (iter->size == size) {
             offset = iter->offset;
             hole_list_.erase(iter);
             return true;
