@@ -17,17 +17,39 @@ Table::~Table()
         assert(false);
     }
 
-    BlockIndex::iterator iter;
-    ScopedMutex lock(block_index_mutex_);
+    BlockEntry::iterator iter;
+    ScopedMutex lock(block_entry_mutex_);
 
-    for (iter = block_index_.begin(); iter != block_index_.end(); iter++) {
-        BlockMeta* meta = iter->second;
-        delete meta;
+    for (iter = block_entry_.begin(); iter != block_entry_.end(); iter++) {
+        BlockHandle* handle = iter->second;
+        delete handle;
     }
 
-    block_index_.clear();
+    block_entry_.clear();
 
     LOG_INFO << "Table destructor finished";
+}
+
+bool Table::init(bool create)
+{
+    if (create) {
+        if (!flush_bootstrap()) return false;
+
+        offset_ = BOOTSTRAP_SIZE;
+        file_size_ = BOOTSTRAP_SIZE;
+    } else {
+        if (file_size_ < BOOTSTRAP_SIZE) return false;
+        if (!load_bootstrap()) return false;
+
+        if (bootstrap_.header.offset) {
+            if (!load_header()) return false;
+        }
+
+        init_holes();
+        LOG_INFO << block_entry_.size() << " blocks found";
+    }   
+    truncate();
+    return true;
 }
 
 bool Table::flush()
@@ -40,14 +62,14 @@ bool Table::flush()
     }
     mutex_.unlock();
 
-    if (!flush_right_now())
+    if (!flush_immediately())
         return false;
 
     truncate();
     return true;
 }
 
-bool Table::flush_right_now()
+bool Table::flush_immediately()
 {
     size_t fly_holes;
     {
@@ -55,25 +77,177 @@ bool Table::flush_right_now()
         fly_holes = fly_hole_list_.size();
     }
 
-    if (!flush_index()) {
-        LOG_ERROR << "flush_index error";
-        return false;
-    }
+    if (!flush_header()) return false;
+    if (!flush_bootstrap()) return false;
 
-    if (!flush_superblock()) {
-        LOG_ERROR << "flush_superblock error";
-        return false;
-    }
-
-    // for (size_t i = 0; i < hole_list_.size(); i++) {
-    //     LOG_INFO << Fmt("hole: offset=%zu, ", hole_list_[i].offset)
-    //              << Fmt("size=%zu", hole_list_[i].size);
-    // }
     flush_fly_holes(fly_holes);
 
     return true;
 }
 
+bool Table::flush_bootstrap()
+{
+    Slice alloc_ptr = self_alloc(BOOTSTRAP_SIZE);
+    assert(alloc_ptr.size());
+
+    Block block(alloc_ptr, 0, BOOTSTRAP_SIZE); 
+    BlockWriter writer(block);
+    
+    bool maybe = bootstrap_.header.offset == 0 ? false : true;
+    writer << maybe;
+    if (writer.ok() && maybe) {
+        writer << bootstrap_.header.offset 
+               << bootstrap_.header.size
+               << bootstrap_.root_nid;
+    }
+
+    assert(writer.ok());
+
+    if (!write_file(0, alloc_ptr)) {
+        LOG_INFO << "flush_bootstrap error";
+        return false;
+    }
+
+    LOG_INFO << "flush_bootstrap success, "
+             << Fmt("offset=%zu, ", bootstrap_.header.offset)
+             << Fmt("size=%zu, ", bootstrap_.header.size)
+             << Fmt("root nid=%zu", bootstrap_.root_nid);
+
+    self_dealloc(alloc_ptr);
+    return true;
+}
+
+bool Table::load_bootstrap()
+{
+    Slice alloc_ptr = self_alloc(BOOTSTRAP_SIZE);
+    assert(alloc_ptr.size());
+
+    if (!read_file(0, alloc_ptr)) {
+        LOG_ERROR << "load bootstrap failed";
+        self_dealloc(alloc_ptr);
+        return false;
+    }
+
+    Block block(alloc_ptr, 0, BOOTSTRAP_SIZE);
+    BlockReader reader(block);
+    bool maybe = false;
+
+    reader >> maybe;
+    if (reader.ok() && maybe) {
+        reader >> bootstrap_.header.offset 
+               >> bootstrap_.header.size
+               >> bootstrap_.root_nid; 
+    }
+
+    if (!reader.ok()) 
+        LOG_ERROR << "read bootstrap failed";
+    else 
+        LOG_INFO << "load_bootstrap success, "
+                 << Fmt("offset=%zu, ", bootstrap_.header.offset)
+                 << Fmt("size=%zu, ", bootstrap_.header.size)
+                 << Fmt("root nid=%zu", bootstrap_.root_nid);
+
+    self_dealloc(alloc_ptr);
+    return reader.ok();
+}
+
+bool Table::flush_header()
+{
+    uint32_t header_size = block_header_size();
+    Slice alloc_ptr = self_alloc(header_size);
+
+    assert(alloc_ptr.size());
+
+    Block block(alloc_ptr, 0, header_size);
+    BlockWriter writer(block);
+   
+    {
+        ScopedMutex lock(block_entry_mutex_);
+
+        uint32_t blocks = block_entry_.size();
+        BlockEntry::iterator iter;
+
+        writer << blocks;
+        for (iter = block_entry_.begin(); iter != block_entry_.end(); iter++) {
+            nid_t nid = iter->first;
+            BlockHandle* handle = iter->second;
+            
+            writer << nid << handle->offset << handle->size;
+        }
+
+        if (!writer.ok()) {
+            LOG_ERROR << "flush_header error";
+            self_dealloc(alloc_ptr);
+            return false;
+        }
+    }
+
+    uint64_t offset = find_space(alloc_ptr.size());
+    Status stat = file_->write(offset, alloc_ptr);
+
+    if (!stat.succ) {
+        LOG_ERROR << "write file error";
+        add_hole(offset, alloc_ptr.size());
+        self_dealloc(alloc_ptr);
+        return false;
+    }
+
+    LOG_INFO << "flush_header success, " 
+             << Fmt("offset=%zu, ", offset)
+             << Fmt("size=%zu", header_size);
+
+    if (bootstrap_.header.offset) {
+        add_fly_hole(bootstrap_.header.offset, 
+                     PAGE_ROUND_UP(bootstrap_.header.size));
+    }
+
+    bootstrap_.header.offset = offset;
+    bootstrap_.header.size = header_size;
+
+    self_dealloc(alloc_ptr);
+
+    return true;
+}
+
+bool Table::load_header()
+{
+    assert(bootstrap_.header.offset > 0); 
+
+    Block* block = read_block(&bootstrap_.header);
+    if (block == NULL) {
+        LOG_ERROR << "read_block failed";
+        return false;
+    }
+
+    BlockReader reader(*block);
+    uint32_t blocks = 0;
+    ScopedMutex lock(block_entry_mutex_);
+
+    reader >> blocks;
+    while (reader.ok() && blocks > 0) {
+        nid_t nid;
+        BlockHandle* handle = new BlockHandle();
+        assert(handle);
+
+        reader >> nid >> handle->offset >> handle->size;
+
+        if (reader.ok())
+            block_entry_[nid] = handle;
+        else
+            delete handle;
+        
+        blocks--;
+    }
+
+    if (!reader.ok())
+        LOG_ERROR << "load_header error";
+    else 
+        LOG_INFO << "load_header success";
+
+    self_dealloc(block->buffer());
+    delete block;
+    return reader.ok();
+}
 void Table::flush_fly_holes(size_t fly_holes)
 {
     ScopedMutex lock(fly_hole_list_mutex_);
@@ -86,62 +260,26 @@ void Table::flush_fly_holes(size_t fly_holes)
     }
 }
 
-bool Table::init(bool create)
-{
-    if (create) {
-        if (!flush_superblock()) {
-            LOG_ERROR << "flush_superblock error";
-            return false;
-        }
-        offset_ = SUPER_BLOCK_SIZE;
-        file_size_ = SUPER_BLOCK_SIZE;
-    } else {
-        if (file_size_ < SUPER_BLOCK_SIZE) {
-            LOG_ERROR << "must be load the wrong file";
-            return false;
-        }
-
-        if (!load_superblock()) {
-            LOG_ERROR << "load superblock error";
-            return false;
-        }
-        LOG_INFO << "load_superblock success";
-
-        if (superblock_.index_meta.offset) {
-            if (!load_index()) {
-                LOG_ERROR << "load index error";
-                return false;
-            }
-            LOG_INFO << "load_index success";
-        }
-
-        init_holes();
-        LOG_INFO << block_index_.size() << " blocks found";
-    }   
-    truncate();
-    return true;
-}
-
 void Table::init_holes()
 {
-    ScopedMutex lock(block_index_mutex_);
+    ScopedMutex lock(block_entry_mutex_);
 
-    std::map<uint64_t, BlockMeta*> offset_set; 
-    offset_set[superblock_.index_meta.offset] = &superblock_.index_meta;
+    std::map<uint64_t, BlockHandle*> offset_set; 
+    offset_set[bootstrap_.header.offset] = &bootstrap_.header;
 
-    BlockIndex::iterator iter;
-    for (iter = block_index_.begin(); iter != block_index_.end(); iter++) {
+    BlockEntry::iterator iter;
+    for (iter = block_entry_.begin(); iter != block_entry_.end(); iter++) {
         offset_set[iter->second->offset] = iter->second;
     }
 
-    std::map<uint64_t, BlockMeta*>::iterator curr, prev;
+    std::map<uint64_t, BlockHandle*>::iterator curr, prev;
     for (curr = offset_set.begin(); curr != offset_set.end(); curr++) {
         uint64_t left;
 
         if (curr == offset_set.begin())
-            left = SUPER_BLOCK_SIZE;
+            left = BOOTSTRAP_SIZE;
         else 
-            left = prev->second->offset + PAGE_ROUND_UP(prev->second->total_size);
+            left = prev->second->offset + PAGE_ROUND_UP(prev->second->size);
 
         if (left < curr->second->offset)
             add_hole(left, curr->second->offset - left);
@@ -151,9 +289,9 @@ void Table::init_holes()
 
     if (offset_set.size() > 1)
         offset_ = offset_set.rbegin()->second->offset +
-            PAGE_ROUND_UP(offset_set.rbegin()->second->total_size);
+            PAGE_ROUND_UP(offset_set.rbegin()->second->size);
     else
-        offset_ = SUPER_BLOCK_SIZE;
+        offset_ = BOOTSTRAP_SIZE;
 }
 
 void Table::add_hole(uint64_t offset, uint32_t size)
@@ -187,9 +325,6 @@ void Table::add_hole(uint64_t offset, uint32_t size)
     if (iter != hole_list_.end()) {
         assert(hole.offset + hole.size <= iter->offset);
         if (iter != hole_list_.begin()) {
-            // LOG_INFO << Fmt("offset=%zu, ", (iter-1)->offset)
-            //          << Fmt("size=%zu, ", (iter-1)->size)
-            //          << Fmt("new hole offset=%zu", hole.offset);
             assert(prev->offset + prev->size <= hole.offset);
 
             if (prev->offset + prev->size == hole.offset) {
@@ -256,233 +391,54 @@ void Table::truncate()
     }
 }
 
-bool Table::flush_superblock()
+
+uint32_t Table::block_header_size()
 {
-    Slice slice = self_alloc(SUPER_BLOCK_SIZE);
-    if (!slice.size()) {
-        LOG_ERROR << "self_alloc failed.";
-        return false;
-    }
+    ScopedMutex lock(block_entry_mutex_);
 
-    Block block(slice, 0, SUPER_BLOCK_SIZE); 
-    BlockWriter writer(block);
-    
-    bool maybe = superblock_.index_meta.offset == 0 ? false : true;
-    writer << maybe;
-    if (writer.ok() && maybe) {
-        write_block_meta(superblock_.index_meta, writer);
-        writer << superblock_.root_nid;
-    }
+    uint32_t size_blocks = 4;
+    uint32_t blocks = block_entry_.size();
+    uint32_t size_block_handle = sizeof(nid_t) + sizeof(BlockHandle);
 
-    if (!writer.ok()) {
-        LOG_ERROR << "write_block_meta error";
-        return false;
-    }
-
-    if (!write_file(0, slice)) {
-        LOG_ERROR << "write_file error";
-        return false;
-    }
-
-    LOG_INFO << "flush_superblock success";
-    self_dealloc(slice);
-    return true;
-}
-
-bool Table::load_superblock()
-{
-    Slice buffer = self_alloc(SUPER_BLOCK_SIZE);
-    if (!buffer.size()) {
-        LOG_ERROR << "self_alloc error";
-        return false;
-    }
-    if (!read_file(0, buffer)) {
-        LOG_ERROR << "read superblock failed";
-        self_dealloc(buffer);
-        return false;
-    }
-
-    Block block(buffer, 0, SUPER_BLOCK_SIZE);
-    BlockReader reader(block);
-    bool maybe = false;
-
-    reader >> maybe;
-    if (reader.ok() && maybe) {
-        reader >> superblock_.index_meta.offset 
-               >> superblock_.index_meta.index_size 
-               >> superblock_.index_meta.total_size
-               >> superblock_.root_nid; 
-    }
-
-    if (!reader.ok()) 
-        LOG_ERROR << "read superblock failed";
-
-    self_dealloc(buffer);
-    return reader.ok();
-}
-
-bool Table::flush_index()
-{
-    uint32_t index_size = get_index_size();
-    Slice buffer = self_alloc(index_size);
-
-    if (buffer.size() == 0) {
-        LOG_ERROR << "self_alloc failed";
-        return false;
-    }
-
-    Block block(buffer, 0, index_size);
-    BlockWriter writer(block);
-   
-    {
-        ScopedMutex lock(block_index_mutex_);
-
-        uint32_t num_index = block_index_.size();
-        BlockIndex::iterator iter;
-
-        writer << num_index;
-        for (iter = block_index_.begin(); iter != block_index_.end(); iter++) {
-            nid_t nid = iter->first;
-            BlockMeta* meta = iter->second;
-            
-            writer << nid;
-            write_block_meta(*meta, writer);
-        }
-
-        if (!writer.ok()) {
-            LOG_ERROR << "flush_index error";
-            self_dealloc(buffer);
-            return false;
-        }
-    }
-
-    uint64_t offset = get_room(buffer.size());
-    Status stat = file_->write(offset, buffer);
-
-    if (!stat.succ) {
-        LOG_ERROR << "write file error";
-        add_hole(offset, buffer.size());
-        self_dealloc(buffer);
-        return false;
-    }
-
-    LOG_INFO << "flush_index success, " 
-             << Fmt("offset=%zu, ", offset)
-             << Fmt("size=%zu", index_size);
-
-    if (superblock_.index_meta.offset) {
-        add_fly_hole(superblock_.index_meta.offset, 
-                     PAGE_ROUND_UP(superblock_.index_meta.total_size));
-    }
-
-    superblock_.index_meta.offset = offset;
-    superblock_.index_meta.total_size = index_size;
-
-    self_dealloc(buffer);
-    return true;
-}
-
-bool Table::load_index()
-{
-    assert(superblock_.index_meta.offset > 0); 
-
-    Block* block = read_block(superblock_.index_meta, 0, 
-                            superblock_.index_meta.total_size);
-    if (block == NULL) {
-        LOG_ERROR << "read_block failed";
-        return false;
-    }
-
-    BlockReader reader(*block);
-    uint32_t num_index = 0;
-    ScopedMutex lock(block_index_mutex_);
-
-    reader >> num_index;
-    while (reader.ok() && num_index > 0) {
-        nid_t nid;
-        BlockMeta* meta = new BlockMeta();
-        assert(meta);
-
-        reader >> nid;
-        read_block_meta(*meta, reader);
-
-        if (reader.ok()) {
-            block_index_[nid] = meta;
-        } else {
-            delete meta;
-            LOG_ERROR << "read_block_meta error";
-        }
-        num_index--;
-    }
-
-    if (!reader.ok())
-        LOG_ERROR << "load_index error";
-
-    self_dealloc(block->buffer());
-    delete block;
-    return reader.ok();
-}
-
-uint32_t Table::get_index_size()
-{
-    ScopedMutex lock(block_index_mutex_);
-
-    uint32_t size_num_index = 4;
-    uint32_t num_index = block_index_.size();
-    uint32_t size_block_meta = sizeof(nid_t) + sizeof(BlockMeta);
-
-    return size_num_index + num_index * size_block_meta;
+    return size_blocks + blocks * size_block_handle;
 }
 
 Block* Table::read(nid_t nid)
 {
-    BlockMeta* meta;
+    BlockHandle* handle;
 
     {
-        ScopedMutex lock(block_index_mutex_);
+        ScopedMutex lock(block_entry_mutex_);
 
-        BlockIndex::iterator iter = block_index_.find(nid); 
-        if (iter == block_index_.end()) return NULL;
+        BlockEntry::iterator iter = block_entry_.find(nid); 
+        if (iter == block_entry_.end()) return NULL;
 
-        meta = iter->second;
-        assert(meta);
+        handle = iter->second;
+        assert(handle);
     }
 
-    if (nid == 50)
-        LOG_INFO << "nid=50, read offset=" << meta->offset;
-    Block* block = read_block(*meta, 0, meta->total_size); 
+    Block* block = read_block(handle);
 
     //LOG_INFO << Fmt("read node success, nid=%zu", nid);
     return block;
 }
 
-void Table::async_write(nid_t nid, Block& block, uint32_t index_size, Callback cb)
+void Table::async_write(nid_t nid, Block& block, Callback cb)
 {
     assert(block.buffer().size() == PAGE_ROUND_UP(block.size())); 
     
     AsyncWriteContext* context = new AsyncWriteContext();
+
     context->nid = nid;
     context->callback = cb;
-    context->meta.index_size = index_size;
-    context->meta.total_size = block.size();
-    context->meta.offset = get_room(block.buffer().size());
+    context->handle.size = block.size();
+    context->handle.offset = find_space(block.buffer().size());
     {
         ScopedMutex lock(mutex_);
         fly_writers_++;
     }
 
-    // LOG_INFO << Fmt("get room, nid=%zu, ", nid)
-    //          << Fmt("offset=%zu, ", context->meta.offset)
-    //          << Fmt("size=%zu", block.buffer().size());
-
-    if (nid == 50) {
-        BlockReader reader(block);
-        nid_t self, parent;
-        reader >> self >> parent;
-        LOG_INFO << Fmt("self=%zu, ", self) << Fmt("parent=%zu, ", parent)
-                 << Fmt("write offset=%zu, ", context->meta.offset);
-    }
-    file_->async_write(context->meta.offset, block.buffer(), 
+    file_->async_write(context->handle.offset, block.buffer(), 
                 boost::bind(&Table::async_write_handler, this, context, _1));
 }
 
@@ -494,28 +450,31 @@ void Table::async_write_handler(AsyncWriteContext* context, Status status)
     }
 
     if (status.succ) {
-        ScopedMutex lock(block_index_mutex_);
+        ScopedMutex lock(block_entry_mutex_);
 
-        BlockIndex::iterator iter = block_index_.find(context->nid); 
-        if (iter == block_index_.end()) {
-            BlockMeta* meta = new BlockMeta();
-            *meta = context->meta;
-            block_index_[context->nid] = meta;
+        BlockEntry::iterator iter = block_entry_.find(context->nid); 
+
+        if (iter == block_entry_.end()) {
+            BlockHandle* handle = new BlockHandle();
+
+            *handle = context->handle;
+            block_entry_[context->nid] = handle;
         } else {
-            BlockMeta* meta = iter->second;
-            add_fly_hole(meta->offset, PAGE_ROUND_UP(meta->total_size));
-            *meta = context->meta;
+            BlockHandle* handle = iter->second;
+
+            add_fly_hole(handle->offset, PAGE_ROUND_UP(handle->size));
+            *handle = context->handle;
         }
     } else {
         LOG_ERROR << "async_write error, " << Fmt("nid=%zu", context->nid);
-        add_hole(context->meta.offset, context->meta.total_size);
+        add_hole(context->handle.offset, context->handle.size);
     }
 
     context->callback(status);
     delete context;
 }
 
-uint64_t Table::get_room(uint32_t size) 
+uint64_t Table::find_space(uint32_t size) 
 {
     uint64_t offset;
 
@@ -533,46 +492,22 @@ uint64_t Table::get_room(uint32_t size)
     return offset;
 }
 
-Block* Table::read_block(BlockMeta& meta, uint32_t offset, uint32_t size)
+Block* Table::read_block(const BlockHandle* handle)
 {
-    // uint32_t align_offset = PAGE_ROUND_DOWN(offset);
-    // uint32_t fixed_size = size + (offset - align_offset);
+    Slice alloc_ptr = self_alloc(handle->size);
+    if (alloc_ptr.size() == 0) {
+        LOG_INFO << alloc_ptr.size();
+        assert(false);
+    }
+    assert(alloc_ptr.size());
 
-    // Slice buffer = self_alloc(fixed_size);
-    // if (buffer.size() == 0) {
-    //     LOG_ERROR << "self_alloc error";
-    //     return NULL;
-    // }
-
-    // if (!read_file(meta.offset + align_offset, buffer)) {
-    //     LOG_ERROR << "read_file failed";
-    //     self_dealloc(buffer);
-    //     return NULL;
-    // }
-
-    assert(offset == 0);
-    Slice buffer = self_alloc(size);
-    assert(buffer.size());
-
-    if (!read_file(meta.offset, buffer)) {
+    if (!read_file(handle->offset, alloc_ptr)) {
         LOG_ERROR << "read_file failed";
-        self_dealloc(buffer);
+        self_dealloc(alloc_ptr);
         return NULL;
     }
 
-    return new Block(buffer, 0, size);
-}
-
-bool Table::read_block_meta(BlockMeta& meta, BlockReader& reader)
-{
-    reader >> meta.offset >> meta.index_size >> meta.total_size;
-    return reader.ok();
-}
-
-bool Table::write_block_meta(BlockMeta& meta, BlockWriter& writer)
-{
-    writer << meta.offset << meta.index_size << meta.total_size;
-    return writer.ok();
+    return new Block(alloc_ptr, 0, handle->size);
 }
 
 bool Table::read_file(uint64_t offset, Slice& buffer)
@@ -619,19 +554,19 @@ bool Table::write_file(uint64_t offset, const Slice& buffer)
 
 Slice Table::self_alloc(size_t size)
 {
-    size_t align_size = PAGE_ROUND_UP(size);
-    void* buffer = NULL;
+    size_t aligned_size = PAGE_ROUND_UP(size);
+    void* alloc_ptr = NULL;
 
-    if (posix_memalign(&buffer, PAGE_SIZE, align_size) != 0) {
+    if (posix_memalign(&alloc_ptr, PAGE_SIZE, aligned_size) != 0) {
         LOG_ERROR << "posix_memalign error: " << strerror(errno);
         return Slice();
     }
-    assert(buffer);
-    return Slice((char*)buffer, align_size);
+    assert(alloc_ptr);
+    return Slice((char*)alloc_ptr, aligned_size);
 }
 
-void Table::self_dealloc(Slice buffer)
+void Table::self_dealloc(Slice alloc_ptr)
 {
-    if (buffer.size())
-        free((char*)buffer.data());
+    if (alloc_ptr.size())
+        free((char*)alloc_ptr.data());
 }

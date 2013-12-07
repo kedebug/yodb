@@ -20,23 +20,20 @@ namespace yodb {
 #define PAGE_ROUND_DOWN(x)  ((x) & (~(PAGE_SIZE - 1)))
 #define PAGE_ROUNDED(x)     ((x) == (PAGE_ROUND_DOWN(x)))
 
-#define SUPER_BLOCK_SIZE    PAGE_SIZE 
+#define BOOTSTRAP_SIZE      PAGE_SIZE 
 
-struct BlockMeta {
-    BlockMeta()
-        : offset(0), index_size(0), total_size(0) {}
+struct BlockHandle {
+    BlockHandle() : offset(0), size(0) {}
 
     uint64_t offset;
-    uint32_t index_size;
-    uint32_t total_size;
+    uint32_t size;
 };
 
-class SuperBlock {
+class Bootstrap {
 public:
-    SuperBlock() 
-        : index_meta(), root_nid(NID_NIL) {}
+    Bootstrap() : header(), root_nid(NID_NIL) {}
 
-    BlockMeta index_meta;
+    BlockHandle header;
     nid_t root_nid;
 };
 
@@ -48,9 +45,23 @@ public:
 
     bool init(bool create = false);
     
+    // Get node's block information marked by nid.
+    Block* read(nid_t nid);
+
+    typedef boost::function<void (Status)> Callback;
+
+    // Asynchoronous write file, this will be always called by Cache module.
+    void async_write(nid_t nid, Block& block, Callback cb);
+
+    bool flush_bootstrap();
+    bool load_bootstrap();
+
+    bool flush_header();
+    bool load_header();
+
     // Flush all the buffers to file.
     bool flush();
-    bool flush_right_now();
+    bool flush_immediately();
 
     void init_holes();
 
@@ -58,7 +69,7 @@ public:
     void add_hole(uint64_t offset, uint32_t size);
     
     // Whether we can get suitable room from hole list.
-    // This will be always called by get_room().
+    // This will be always called by find_space().
     bool get_hole(uint32_t size, uint64_t& offset);
 
     // Fly holes are collected from asynchoronous write calls:
@@ -69,51 +80,23 @@ public:
 
     void flush_fly_holes(size_t fly_holes);
 
-    typedef boost::function<void (Status)> Callback;
-
-    // Get node's block information marked by nid.
-    Block* read(nid_t nid);
-
-    // Asynchoronous write file, this will be always called by Cache module.
-    void async_write(nid_t nid, Block& block, uint32_t index_size, Callback cb);
-
-    bool flush_superblock();
-    bool load_superblock();
-
-    bool flush_index();
-    bool load_index();
-
-    nid_t get_root_nid() 
-    {
-        return superblock_.root_nid;
-    }
-
-    void set_root_nid(nid_t nid)
-    {
-        superblock_.root_nid = nid;
-    }
+    nid_t get_root_nid() { return bootstrap_.root_nid; }
+    void set_root_nid(nid_t nid) { bootstrap_.root_nid = nid; }
 
     size_t get_node_count()  
     {
-        ScopedMutex lock(block_index_mutex_);
-        return block_index_.size();
+        ScopedMutex lock(block_entry_mutex_);
+        return block_entry_.size();
     }
 
-    // Get size of all the block meta, this will be always called by flush_index().
-    uint32_t get_index_size();
+    // Get size of all the block handle, this will be always called by flush_index().
+    uint32_t block_header_size();
+
+    // Give a block handle, returns the the block you needed.
+    Block* read_block(const BlockHandle* handle);
 
     // Get suitable room for size, return the offset of our file.
-    uint64_t get_room(uint32_t size);
-
-    // Give a block meta, returns the part of the block you needed,
-    // offset is relative to meta.offset, not to the file.
-    Block* read_block(BlockMeta& meta, uint32_t offset, uint32_t size);
-
-    // Give a reader buffer, parse the value and fill into the members of meta.
-    bool read_block_meta(BlockMeta& meta, BlockReader& reader);
-
-    // Give a block meta, members in it will append to the writer buffer.
-    bool write_block_meta(BlockMeta& meta, BlockWriter& writer);
+    uint64_t find_space(uint32_t size);
 
     // Synchoronous read file
     bool read_file(uint64_t offset, Slice& buffer);
@@ -127,7 +110,7 @@ public:
     Slice self_alloc(size_t size);
 
     // posix_memalign() allocated buffer should use free() to deallocate.
-    void self_dealloc(Slice buffer);
+    void self_dealloc(Slice alloc_ptr);
 
     // size() function is seldom used, we remain it for debug reason.
     uint64_t size() { return file_size_; }
@@ -136,20 +119,18 @@ private:
     AIOFile* file_; 
     uint64_t file_size_;
     uint64_t offset_;
-    uint32_t fly_readers_;
-    uint32_t fly_writers_;
     Mutex mutex_;
 
-    SuperBlock superblock_;
+    Bootstrap bootstrap_;
 
-    typedef std::map<nid_t, BlockMeta*> BlockIndex;
-    BlockIndex block_index_;
-    Mutex block_index_mutex_;
+    typedef std::map<nid_t, BlockHandle*> BlockEntry;
+    BlockEntry block_entry_;
+    Mutex block_entry_mutex_;
 
     struct AsyncWriteContext {
         nid_t nid;
         Callback callback;
-        BlockMeta meta;
+        BlockHandle handle;
     };
 
     void async_write_handler(AsyncWriteContext* context, Status status);
@@ -158,6 +139,9 @@ private:
         uint64_t offset;
         uint32_t size;
     };
+
+    uint32_t fly_readers_;
+    uint32_t fly_writers_;
 
     typedef std::deque<Hole> HoleList;
     // the holes is sorted by offset

@@ -7,7 +7,7 @@
 
 using namespace yodb;
 
-const uint64_t kMaxCount = 10 * 1000 * 1000;
+const uint64_t kMaxCount = 1000 * 1000;
 
 void write(DBImpl* db)
 {
@@ -55,7 +55,7 @@ int main()
     opts.cache_limited_memory = 1 << 26;
     opts.env = new Env("/home/kedebug/develop/yodb/bin");
 
-    DBImpl* db = new DBImpl("second", opts);
+    DBImpl* db = new DBImpl("third", opts);
     db->init();
 
     Timestamp begin = Timestamp::now();
@@ -68,7 +68,7 @@ int main()
 
     delete db;
 
-    db = new DBImpl("second", opts); 
+    db = new DBImpl("third", opts); 
     db->init();
     read(db);
 

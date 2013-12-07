@@ -454,14 +454,10 @@ bool Node::constrcutor(BlockReader& reader)
 
     uint32_t pivots = 0;
     reader >> pivots;
-    assert(reader.ok());
-    if (pivots == 0) {
-        LOG_INFO << Fmt("self=%zu, parent=", self_nid_) << parent_nid_;
-        assert(false);
-    }
 
-    if (pivots > 16)
-        assert(false);
+    assert(reader.ok());
+    assert(pivots > 0);
+
     pivots_.reserve(pivots);
 
     for (size_t i = 0; i < pivots; i++) {
@@ -484,9 +480,6 @@ bool Node::destructor(BlockWriter& writer)
 {
     writer << self_nid_ << parent_nid_ << is_leaf_;
 
-    if (self_nid_ == 50)
-        assert(is_leaf_);
-
     uint32_t pivots = pivots_.size();
     assert(pivots > 0);
 
@@ -498,11 +491,6 @@ bool Node::destructor(BlockWriter& writer)
         pivots_[i].msgbuf->destructor(writer);
     }
 
-    if (self_nid_ == 50) {
-        LOG_INFO << "calc size: " << write_back_size();
-        for (size_t i = 0; i < pivots_.size(); i++)
-            LOG_INFO << pivots_[i].child_nid;
-    }
     return writer.ok();
 }
 

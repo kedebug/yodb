@@ -84,13 +84,10 @@ Node* Cache::get(nid_t nid)
     if (block == NULL) return NULL;
 
     BlockReader reader(*block);
-
     Node* node = tree_->create_node(nid);
 
     assert(node->self_nid_ == nid);
-    if (nid == 50) {
-        LOG_INFO << "nid: 50, size=" << block->size();
-    }
+
     if (!(node->constrcutor(reader))){
         assert(false);
     }
@@ -237,12 +234,12 @@ void Cache::flush_ready_nodes(std::vector<Node*>& ready_nodes)
 {
     for (size_t i = 0; i < ready_nodes.size(); i++) {
         Node* node = ready_nodes[i];
-        size_t size = node->write_back_size();
+        size_t bytes = node->write_back_size();
         
-        Slice buffer = table_->self_alloc(size);
-        assert(buffer.size());
+        Slice alloc_ptr = table_->self_alloc(bytes);
+        assert(alloc_ptr.size());
 
-        Block block(buffer, 0, size);
+        Block block(alloc_ptr, 0, bytes);
         BlockWriter writer(block);
 
         node->destructor(writer);
@@ -251,26 +248,26 @@ void Cache::flush_ready_nodes(std::vector<Node*>& ready_nodes)
         node->set_dirty(false);
         node->write_unlock();
 
-        table_->async_write(node->self_nid_, block, 0,
-            boost::bind(&Cache::write_complete_handler, this, node, buffer, _1)); 
+        table_->async_write(node->self_nid_, block,
+            boost::bind(&Cache::write_complete_handler, this, node, alloc_ptr, _1)); 
     }
 
-    // Timestamp now = Timestamp::now();
-    // double time = 1.0;
-    // if (time_interval(now, last_checkpoint_timestamp) > time) {
-    //     table_->flush_right_now();
-    //     table_->truncate();
-    //     last_checkpoint_timestamp = now;
-    // }
+    Timestamp now = Timestamp::now();
+    double time = 60.0;
+    if (time_interval(now, last_checkpoint_timestamp) > time) {
+        table_->flush_immediately();
+        table_->truncate();
+        last_checkpoint_timestamp = now;
+    }
 }
 
-void Cache::write_complete_handler(Node* node, Slice buffer, Status status)
+void Cache::write_complete_handler(Node* node, Slice alloc_ptr, Status status)
 {
     assert(node != NULL);
-    assert(buffer.size());
+    assert(alloc_ptr.size());
 
     node->set_flushing(false);
-    table_->self_dealloc(buffer);
+    table_->self_dealloc(alloc_ptr);
 
     if (!status.succ) {
         LOG_ERROR << "write back node failed, nid=" << node->self_nid_;
@@ -279,15 +276,12 @@ void Cache::write_complete_handler(Node* node, Slice buffer, Status status)
 
 void Cache::maybe_eviction()
 {
-    while (true) {
-        {
-            ScopedMutex lock(cache_size_mutex_);
-            if (cache_size_ < options_.cache_limited_memory)
-                break;
-        }
-        evict_from_memory();
-        ::usleep(1000);
+    {
+        ScopedMutex lock(cache_size_mutex_);
+        if (cache_size_ < options_.cache_limited_memory)
+            return;
     }
+    evict_from_memory();
 }
 
 void Cache::evict_from_memory()
