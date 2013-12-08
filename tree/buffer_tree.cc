@@ -68,7 +68,6 @@ Node* BufferTree::create_node()
     Node* node = new Node(this, nid);
 
     cache_->put(nid, node);
-    // node_map_[nid] = node;
 
     return node;
 }
@@ -80,11 +79,7 @@ Node* BufferTree::create_node(nid_t nid)
 
 Node* BufferTree::get_node_by_nid(nid_t nid)
 {
-    // assert(nid != NID_NIL);
-    // assert(nid <= node_count_);
-
     return cache_->get(nid);
-    // return node_map_[nid];
 }
 
 void BufferTree::lock_path(const Slice& key, std::vector<Node*>& path)
@@ -109,6 +104,9 @@ bool BufferTree::put(const Slice& key, const Slice& value)
 {
     assert(root_);
     
+    // Tree maybe grow up after we insert a kv,
+    // so we should use the copy of the root_ to
+    // ensure dec_ref() right processed.(same as below)
     Node* root = root_;
     root->inc_ref();
     bool succ = root->put(key, value);

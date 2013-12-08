@@ -25,14 +25,6 @@ public:
     Pivot(nid_t child, MsgBuf* mbuf, Slice key = Slice())
         : msgbuf(mbuf), child_nid(child), left_most_key(key) {}
 
-    // Slice left_most_key() 
-    // {
-    //     // when left_most_key() function is called, 
-    //     // the left_most_key must be exists(Actually, bad design).
-    //     assert(left_most_key_.size());
-    //     return left_most_key_;
-    // }
-
     MsgBuf* msgbuf;
     nid_t child_nid;
     Slice left_most_key;

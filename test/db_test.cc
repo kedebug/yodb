@@ -51,7 +51,7 @@ void read(DBImpl* db)
 int main()
 {
     Options opts;
-    opts.comparator = new LexicalComparator();
+    opts.comparator = new BytewiseComparator();
     opts.cache_limited_memory = 1 << 26;
     opts.env = new Env("/home/kedebug/develop/yodb/bin");
 

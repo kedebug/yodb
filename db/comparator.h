@@ -10,12 +10,9 @@ public:
     virtual int compare(const Slice& a, const Slice& b) const = 0;
 };
 
-class LexicalComparator : public Comparator {
+class BytewiseComparator : public Comparator {
 public:
-    int compare(const Slice& a, const Slice& b) const 
-    {
-        return a.compare(b);
-    }
+    int compare(const Slice& a, const Slice& b) const { return a.compare(b); }
 };
 
 } // namespace yodb

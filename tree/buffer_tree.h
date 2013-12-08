@@ -27,8 +27,13 @@ public:
     bool del(const Slice& key);
     bool get(const Slice& key, Slice& value);
 
+    // Create a newly node without known the nid.
     Node* create_node();
+
+    // This kind of create_node with nid is usually called by cache,
+    // typically because nid have already exists, so no need to produce a new one.
     Node* create_node(nid_t nid);
+
     Node* get_node_by_nid(nid_t nid);
     void  lock_path(const Slice& key, std::vector<Node*>& path);
 

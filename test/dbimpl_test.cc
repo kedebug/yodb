@@ -89,7 +89,7 @@ int main()
 {
     setenv("YODB_LOG_LEVEL", "WARN", 1);
 
-    g_opts.comparator = new LexicalComparator();
+    g_opts.comparator = new BytewiseComparator();
     g_opts.max_node_child_number = 8;
     g_opts.max_node_msg_count = 128;
 
