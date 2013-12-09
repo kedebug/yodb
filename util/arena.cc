@@ -1,5 +1,4 @@
 #include "util/arena.h"
-#include <stdint.h>
 #include <assert.h>
 
 using namespace yodb;

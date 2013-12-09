@@ -1,6 +1,8 @@
 #ifndef _YODB_ARENA_H_
 #define _YODB_ARENA_H_
 
+#include <stdlib.h>
+#include <stdint.h>
 #include <vector>
 #include <boost/noncopyable.hpp>
 

@@ -28,3 +28,6 @@ set(GSOURCE
 
 add_executable(db db_test.cc)
 target_link_libraries(db yodb)
+
+add_executable(skiplist skiplist_test.cc)
+target_link_libraries(skiplist yodb)
