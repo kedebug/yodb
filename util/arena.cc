@@ -12,8 +12,7 @@ Arena::Arena()
 
 Arena::~Arena()
 {
-    for (size_t i = 0; i < blocks_.size(); i++)
-        delete[] blocks_[i];
+    clear();
 }
 
 char* Arena::alloc(size_t bytes)
@@ -81,4 +80,16 @@ char* Arena::alloc_new_block(size_t block_bytes)
 size_t Arena::usage() const 
 {
     return blocks_size_ + blocks_.capacity() * (sizeof(char*));
+}
+
+void Arena::clear()
+{
+    for (size_t i = 0; i < blocks_.size(); i++)
+        delete[] blocks_[i];
+
+    blocks_size_ = 0;
+    alloc_ptr_ = NULL;
+    remaining_ = 0;
+
+    blocks_.clear();
 }

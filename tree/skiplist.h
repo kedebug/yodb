@@ -1,9 +1,18 @@
+#ifndef _YODB_SKIPLIST_H_
+#define _YODB_SKIPLIST_H_
+
 #include <stdlib.h>
 #include <time.h>
 #include <assert.h>
+
+#include <vector>
 #include <boost/noncopyable.hpp>
 
+#include "util/arena.h"
+
 namespace yodb {
+
+class Arena;
 
 template<typename Key, class Comparator>
 class SkipList : boost::noncopyable {
@@ -15,7 +24,11 @@ public:
     void insert(const Key& key);
     bool contains(const Key& key) const;
     void erase(const Key& key);
-    size_t count() const;
+    void resize(size_t size);
+    void clear();
+
+    size_t count() const { return count_; }
+    size_t memory_usage() const { return arena_.usage(); }
 
     class Iterator {
     public:
@@ -38,7 +51,8 @@ public:
 private:
     enum { kMaxHeight = 17 };
     
-    Node* const head_;
+    Arena arena_;
+    Node* head_;
     size_t max_height_;
     size_t count_;
     Comparator compare_;
@@ -60,7 +74,7 @@ struct SkipList<Key, Comparator>::Node {
     Key key;
 
     Node* next(size_t n) { return next_[n]; }
-    void  set_next(size_t n, Node* node) { next_[n] = node; }
+    void set_next(size_t n, Node* node) { next_[n] = node; }
     void set_key(const Key& k) { key = k; }
 
 private:
@@ -72,7 +86,7 @@ typename SkipList<Key, Comparator>::Node*
 SkipList<Key, Comparator>::new_node(const Key& key, size_t height)
 {
     size_t size = sizeof(Node) + sizeof(Node*) * (height - 1);
-    char* alloc_ptr = new char[size];
+    char* alloc_ptr = arena_.alloc_aligned(size);
 
     return new (alloc_ptr) Node(key);
 }
@@ -220,7 +234,7 @@ SkipList<Key, Comparator>::find_less_than(const Key& key) const
 
 template<typename Key, class Comparator>
 SkipList<Key, Comparator>::SkipList(Comparator cmp)
-    : head_(new_node(0, kMaxHeight)),
+    : arena_(), head_(new_node(0, kMaxHeight)),
       max_height_(1), count_(0), 
       compare_(cmp), seed_(time(NULL))
 {
@@ -286,14 +300,45 @@ void SkipList<Key, Comparator>::erase(const Key& key)
     }
 
     count_--;
-    delete[] reinterpret_cast<char*>(curr);
 }
 
 template<typename Key, class Comparator>
-size_t SkipList<Key, Comparator>::count() const
+void SkipList<Key, Comparator>::resize(size_t size)
 {
-    return count_;
+    assert(size <= count_);
+    
+    std::vector<Key> keys;
+
+    Iterator iter(this);
+    iter.seek_to_first();
+
+    for (size_t i = 0; i < size; i++) {
+        assert(iter.valid());
+        keys.push_back(iter.key());
+        iter.next();
+    }
+
+    clear();
+
+    for (size_t i = 0; i < keys.size(); i++) 
+        insert(keys[i]);
+
+    count_ = size;
+}
+
+template<typename Key, class Comparator>
+void SkipList<Key, Comparator>::clear()
+{
+    arena_.clear();
+    head_ = new_node(0, kMaxHeight);
+
+    for (int i = 0; i < kMaxHeight; i++)
+        head_->set_next(i, NULL);
+
+    count_ = 0;
+    max_height_ = 1;
 }
 
 } // namespace yodb
 
+#endif // _YODB_SKIPLIST_H_

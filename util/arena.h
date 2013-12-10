@@ -1,6 +1,7 @@
 #ifndef _YODB_ARENA_H_
 #define _YODB_ARENA_H_
 
+#include <cstddef>
 #include <stdlib.h>
 #include <stdint.h>
 #include <vector>
@@ -24,6 +25,9 @@ public:
     
     // Estimate of the total memory usage of data allocated by arena.
     size_t usage() const;
+
+    // Clear all the memory allocated, reset all the class members.
+    void clear();
 
 private:
     char* alloc_fallback(size_t bytes);

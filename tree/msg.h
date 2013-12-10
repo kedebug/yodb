@@ -50,7 +50,7 @@ private:
     Slice key_;
     Slice value_;
 };
-
+// Platform
 class MsgBuf {
 public:
     typedef std::vector<Msg> Container;
