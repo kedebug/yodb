@@ -35,10 +35,11 @@ public:
         explicit Iterator(const SkipList* list);
 
         bool valid() const;
-        const Key& key() const;
+        Key key() const;
         void next();
         void prev();
 
+        void seek(const Key& target);
         void seek_to_first();
         void seek_to_middle();
         void seek_to_last();
@@ -105,7 +106,7 @@ inline bool SkipList<Key, Comparator>::Iterator::valid() const
 }
 
 template<typename Key, class Comparator>
-inline const Key& SkipList<Key, Comparator>::Iterator::key() const 
+inline Key SkipList<Key, Comparator>::Iterator::key() const
 {
     assert(valid());
     return node_->key;
@@ -126,6 +127,12 @@ inline void SkipList<Key, Comparator>::Iterator::prev()
     node_ = list_->find_less_than(node_->key);
     if (node_ == list_->head_)
         node_ = NULL;
+}
+
+template<typename Key, class Comparator>
+inline void SkipList<Key, Comparator>::Iterator::seek(const Key& target)
+{
+    node_ = list_->find_greater_or_equal(target, NULL);
 }
 
 template<typename Key, class Comparator>
@@ -234,7 +241,7 @@ SkipList<Key, Comparator>::find_less_than(const Key& key) const
 
 template<typename Key, class Comparator>
 SkipList<Key, Comparator>::SkipList(Comparator cmp)
-    : arena_(), head_(new_node(0, kMaxHeight)),
+    : arena_(), head_(new_node(Key(), kMaxHeight)),
       max_height_(1), count_(0), 
       compare_(cmp), seed_(time(NULL))
 {
@@ -330,7 +337,7 @@ template<typename Key, class Comparator>
 void SkipList<Key, Comparator>::clear()
 {
     arena_.clear();
-    head_ = new_node(0, kMaxHeight);
+    head_ = new_node(Key(), kMaxHeight);
 
     for (int i = 0; i < kMaxHeight; i++)
         head_->set_next(i, NULL);

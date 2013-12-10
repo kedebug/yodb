@@ -89,7 +89,7 @@ void Node::maybe_push_down_or_split()
 {
     int index = -1;
     for (size_t i = 0; i < pivots_.size(); i++) {
-        if (pivots_[i].msgbuf->msg_count() > tree_->options_.max_node_msg_count) {
+        if (pivots_[i].msgbuf->count() > tree_->options_.max_node_msg_count) {
             index = i; break;
         }
     }
@@ -192,7 +192,7 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
 {
     assert(is_leaf_);
 
-    if (msgbuf->msg_count() <= tree_->options_.max_node_msg_count) {
+    if (msgbuf->count() <= tree_->options_.max_node_msg_count) {
         write_unlock();
         return;
     }
@@ -200,7 +200,7 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
     MsgBuf* srcbuf = msgbuf;
     MsgBuf* dstbuf = new MsgBuf(tree_->options_.comparator);    
     
-    size_t half = srcbuf->msg_count() / 2;
+    size_t half = srcbuf->count() / 2;
 
     srcbuf->lock();
 
@@ -225,7 +225,7 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
     node_page_size_ += srcbuf->size() + dstbuf->size() - size;
 
     // LOG_INFO << "split_msgbuf, " 
-    //          << Fmt("%d ", half) << Fmt("%d ", dstbuf->msg_count())
+    //          << Fmt("%d ", half) << Fmt("%d ", dstbuf->count())
     //          << half_key.data();
 
     set_dirty(true);
@@ -380,7 +380,7 @@ void Node::lock_path(const Slice& key, std::vector<Node*>& path)
 
 void Node::push_down_during_lock_path(MsgBuf* msgbuf, Node* parent)
 {
-    if (msgbuf->msg_count() == 0) return; 
+    if (msgbuf->count() == 0) return; 
 
     msgbuf->lock();
 

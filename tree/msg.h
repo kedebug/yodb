@@ -1,10 +1,11 @@
 #ifndef _YODB_MSG_H_
 #define _YODB_MSG_H_
 
+#include "db/comparator.h"
 #include "util/slice.h"
 #include "util/logger.h"
 #include "sys/mutex.h"
-#include "db/comparator.h"
+#include "tree/skiplist.h"
 
 #include <vector>
 
@@ -16,11 +17,9 @@ enum MsgType {
 
 class Msg {
 public:
-    Msg() {}
+    Msg() : type_(_Nop) {}
     Msg(MsgType type, Slice key, Slice value = Slice())
-        : type_(type), key_(key), value_(value) 
-    {
-    }
+        : type_(type), key_(key), value_(value) {}
 
     size_t size() const
     {
@@ -50,24 +49,35 @@ private:
     Slice key_;
     Slice value_;
 };
-// Platform
+
+class Compare {
+public:
+    Compare(Comparator* comparator);
+    int operator()(const Msg& a, const Msg& b) const
+    {
+        return comparator_->compare(a.key(), b.key());
+    }
+private:
+    Comparator* comparator_;
+};
+
 class MsgBuf {
 public:
-    typedef std::vector<Msg> Container;
-    typedef Container::iterator Iterator;
+    typedef SkipList<Msg, Compare> SkipList;
+    typedef SkipList::Iterator Iterator;
 
     MsgBuf(Comparator* comparator);
     ~MsgBuf();
 
-    size_t msg_count();
+    size_t count();
 
     size_t size();
 
-    // release the ownership of the Msg, but not delete them.
-    void release();
+    // Clear the Msg, but not delete the memory they allocated.
+    void clear();
 
     // you must lock hold the lock before use it
-    Iterator find(Slice key);
+    bool find(Slice key, Msg& msg);
 
     void insert(const Msg& msg);
     void insert(Iterator pos, Iterator first, Iterator last);
@@ -78,14 +88,12 @@ public:
     // resize the msgbuf, release but not delete the truncated Msg
     void resize(size_t size);
 
-    Iterator begin()    { return msgbuf_.begin(); }
-    Iterator end()      { return msgbuf_.end(); }
     void lock()         { mutex_.lock(); }
     void unlock()       { mutex_.unlock(); }
 
 private:
 public:
-    Container msgbuf_;
+    SkipList list_;
     Comparator* comparator_;
     Mutex mutex_;
     size_t size_;
