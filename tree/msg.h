@@ -62,14 +62,14 @@ public:
 private:
     Comparator* comparator_;
 };
-// MsgTable
-class MsgBuf {
+
+class MsgTable {
 public:
     typedef SkipList<Msg, Compare> List;
     typedef List::Iterator Iterator;
 
-    MsgBuf(Comparator* comparator);
-    ~MsgBuf();
+    MsgTable(Comparator* comparator);
+    ~MsgTable();
 
     size_t count();
 

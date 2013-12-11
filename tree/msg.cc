@@ -2,14 +2,14 @@
 
 using namespace yodb;
 
-MsgBuf::MsgBuf(Comparator* comparator)
+MsgTable::MsgTable(Comparator* comparator)
     : list_(Compare(comparator)), 
       comparator_(comparator), 
       mutex_(), size_(0)
 {
 }
 
-MsgBuf::~MsgBuf()
+MsgTable::~MsgTable()
 {
     Iterator iter(&list_);
     iter.seek_to_first();
@@ -22,22 +22,22 @@ MsgBuf::~MsgBuf()
     list_.clear();
 }
 
-size_t MsgBuf::count()
+size_t MsgTable::count()
 {
     return list_.count();
 }
 
-size_t MsgBuf::size()
+size_t MsgTable::size()
 {
     return 4 + size_;
 }
 
-size_t MsgBuf::memory_usage()
+size_t MsgTable::memory_usage()
 {
-    return list_.memory_usage() + sizeof(MsgBuf);
+    return list_.memory_usage() + sizeof(MsgTable);
 }
 
-void MsgBuf::clear()
+void MsgTable::clear()
 {
     assert(mutex_.is_locked_by_this_thread());
 
@@ -45,7 +45,7 @@ void MsgBuf::clear()
     size_ = 0;
 }
 
-void MsgBuf::insert(const Msg& msg)
+void MsgTable::insert(const Msg& msg)
 {
     ScopedMutex lock(mutex_);
 
@@ -71,7 +71,7 @@ void MsgBuf::insert(const Msg& msg)
         got.release();
 }
 
-void MsgBuf::resize(size_t size)
+void MsgTable::resize(size_t size)
 {
     assert(mutex_.is_locked_by_this_thread());
     list_.resize(size);
@@ -86,7 +86,7 @@ void MsgBuf::resize(size_t size)
     }
 }
 
-bool MsgBuf::find(Slice key, Msg& msg)
+bool MsgTable::find(Slice key, Msg& msg)
 {
     assert(mutex_.is_locked_by_this_thread());
     
@@ -103,7 +103,7 @@ bool MsgBuf::find(Slice key, Msg& msg)
     return false;
 }
 
-bool MsgBuf::constrcutor(BlockReader& reader)
+bool MsgTable::constrcutor(BlockReader& reader)
 {
     assert(reader.ok());
 
@@ -130,7 +130,7 @@ bool MsgBuf::constrcutor(BlockReader& reader)
     return reader.ok();
 }
 
-bool MsgBuf::destructor(BlockWriter& writer)
+bool MsgTable::destructor(BlockWriter& writer)
 {
     assert(writer.ok());
 

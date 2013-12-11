@@ -22,10 +22,10 @@ class BufferTree;
 class Pivot {
 public:
     Pivot() {}
-    Pivot(nid_t child, MsgBuf* mbuf, Slice key = Slice())
-        : msgbuf(mbuf), child_nid(child), left_most_key(key) {}
+    Pivot(nid_t child, MsgTable* mbuf, Slice key = Slice())
+        : table(mbuf), child_nid(child), left_most_key(key) {}
 
-    MsgBuf* msgbuf;
+    MsgTable* table;
     nid_t child_nid;
     Slice left_most_key;
 };
@@ -61,19 +61,19 @@ public:
     size_t find_pivot(Slice key);
     void add_pivot(Slice key, nid_t child);
 
-    // maybe push down or split the msgbuf
+    // maybe push down or split the table
     void maybe_push_down_or_split();
 
-    // internal node would push down the msgbuf when it is full 
-    void push_down_msgbuf(MsgBuf* msgbuf, Node* parent);
+    // internal node would push down the table when it is full 
+    void push_down_table(MsgTable* table, Node* parent);
 
-    // only the leaf node would split msgbuf when it is full
-    void split_msgbuf(MsgBuf* msgbuf);
+    // only the leaf node would split table when it is full
+    void split_table(MsgTable* table);
 
     typedef std::vector<Pivot> Container;
 
     void lock_path(const Slice& key, std::vector<Node*>& path);
-    void push_down_during_lock_path(MsgBuf* msgbuf, Node* parent);
+    void push_down_during_lock_path(MsgTable* table, Node* parent);
 
     bool try_read_lock()    { return rwlock_.try_read_lock(); }
     bool try_write_lock()   { return rwlock_.try_write_lock(); }
