@@ -59,7 +59,7 @@ public:
     void create_first_pivot();
     // find which pivot matches the key
     size_t find_pivot(Slice key);
-    void add_pivot(Slice key, nid_t child, nid_t child_sibling);
+    void add_pivot(Slice key, nid_t child);
 
     // maybe push down or split the msgbuf
     void maybe_push_down_or_split();

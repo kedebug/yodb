@@ -12,7 +12,6 @@ MsgBuf::MsgBuf(Comparator* comparator)
 MsgBuf::~MsgBuf()
 {
     Iterator iter(&list_);
-
     iter.seek_to_first();
 
     while (iter.valid()) {
@@ -25,7 +24,6 @@ MsgBuf::~MsgBuf()
 
 size_t MsgBuf::count()
 {
-    ScopedMutex lock(mutex_);
     return list_.count();
 }
 
@@ -34,8 +32,15 @@ size_t MsgBuf::size()
     return 4 + size_;
 }
 
+size_t MsgBuf::memory_usage()
+{
+    return list_.memory_usage() + sizeof(MsgBuf);
+}
+
 void MsgBuf::clear()
 {
+    assert(mutex_.is_locked_by_this_thread());
+
     list_.clear();
     size_ = 0;
 }
@@ -45,19 +50,25 @@ void MsgBuf::insert(const Msg& msg)
     ScopedMutex lock(mutex_);
 
     Iterator iter(&list_);
+    Msg got;
+    bool release = false;
     iter.seek(msg);
 
     if (iter.valid()) {
-        Msg got = iter.key();
-
-        if (comparator_->compare(got.key(), msg.key()) == 0) {
+        got = iter.key();
+        
+        if (got.key() == msg.key()) {
             size_ -= got.size();
-            got.release();
+            assert(got.value() == msg.value()); 
+            release = true;
         }
     }
 
     list_.insert(msg);
     size_ += msg.size();
+
+    if (release)
+        got.release();
 }
 
 void MsgBuf::resize(size_t size)
@@ -71,6 +82,7 @@ void MsgBuf::resize(size_t size)
 
     while (iter.valid()) {
         size_ += iter.key().size(); 
+        iter.next();
     }
 }
 
@@ -83,7 +95,7 @@ bool MsgBuf::find(Slice key, Msg& msg)
 
     iter.seek(fake);
     
-    if (iter.valid()) {
+    if (iter.valid() && iter.key().key() == key) {
         msg = iter.key();
         return true;
     }
@@ -94,6 +106,8 @@ bool MsgBuf::find(Slice key, Msg& msg)
 bool MsgBuf::constrcutor(BlockReader& reader)
 {
     assert(reader.ok());
+
+    ScopedMutex lock(mutex_);
 
     uint32_t count = 0;
     reader >> count;
@@ -119,6 +133,8 @@ bool MsgBuf::constrcutor(BlockReader& reader)
 bool MsgBuf::destructor(BlockWriter& writer)
 {
     assert(writer.ok());
+
+    ScopedMutex lock(mutex_);
 
     uint32_t count = list_.count();
     writer << count;

@@ -7,7 +7,7 @@
 
 using namespace yodb;
 
-const uint64_t kMaxCount = 1000 * 1000;
+const uint64_t kMaxCount = 10 * 1000 * 1000;
 
 void write(DBImpl* db)
 {
@@ -52,7 +52,9 @@ int main()
 {
     Options opts;
     opts.comparator = new BytewiseComparator();
-    opts.cache_limited_memory = 1 << 26;
+    opts.max_node_child_number = 16;
+    opts.max_node_msg_count = 102400;
+    opts.cache_limited_memory = 1 << 28;
     opts.env = new Env("/home/kedebug/develop/yodb/bin");
 
     DBImpl* db = new DBImpl("third", opts);

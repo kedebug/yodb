@@ -44,6 +44,14 @@ void test_insert_erase()
     for (size_t i = 1; i < N; i += 2)
         list.insert(i);
 
+    // test repeat
+    for (size_t i = 0; i < N; i += 2)
+        list.insert(i);
+    for (size_t i = 1; i < N; i += 2)
+        list.insert(i);
+
+    assert(list.count() == N);
+
     SkipList<Key, Comparator>::Iterator iter(&list);
 
     iter.seek_to_first();

@@ -52,7 +52,9 @@ private:
 
 class Compare {
 public:
-    Compare(Comparator* comparator);
+    Compare(Comparator* comparator)
+        : comparator_(comparator) {}
+
     int operator()(const Msg& a, const Msg& b) const
     {
         return comparator_->compare(a.key(), b.key());
@@ -60,11 +62,11 @@ public:
 private:
     Comparator* comparator_;
 };
-
+// MsgTable
 class MsgBuf {
 public:
-    typedef SkipList<Msg, Compare> SkipList;
-    typedef SkipList::Iterator Iterator;
+    typedef SkipList<Msg, Compare> List;
+    typedef List::Iterator Iterator;
 
     MsgBuf(Comparator* comparator);
     ~MsgBuf();
@@ -72,6 +74,8 @@ public:
     size_t count();
 
     size_t size();
+
+    size_t memory_usage();
 
     // Clear the Msg, but not delete the memory they allocated.
     void clear();
@@ -93,7 +97,7 @@ public:
 
 private:
 public:
-    SkipList list_;
+    List list_;
     Comparator* comparator_;
     Mutex mutex_;
     size_t size_;

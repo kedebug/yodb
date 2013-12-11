@@ -33,10 +33,10 @@ bool Node::get(const Slice& key, Slice& value, Node* parent)
     assert(msgbuf);
 
     msgbuf->lock();
-    MsgBuf::Iterator iter = msgbuf->find(key);
-    if (iter != msgbuf->end() && iter->key() == key) {
-        if (iter->type() == Put) {
-            value = iter->value().clone();
+    Msg lookup;
+    if (msgbuf->find(key, lookup) && lookup.key() == key) {
+        if (lookup.type() == Put) {
+            value = lookup.value().clone();
             msgbuf->unlock();
             read_unlock();
             return true;
@@ -149,32 +149,41 @@ void Node::push_down_msgbuf(MsgBuf* msgbuf, Node* parent)
 
     msgbuf->lock();
 
-    size_t index = 1;
-    MsgBuf::Iterator first = msgbuf->begin();
-    MsgBuf::Iterator last  = msgbuf->begin();
-    Comparator* comp = tree_->options_.comparator;
+    size_t idx = 1;
+    size_t i = 0, j = 0;
+    MsgBuf::Iterator first(&msgbuf->list_);
+    MsgBuf::Iterator last(&msgbuf->list_);
 
-    while (last != msgbuf->end() && index < pivots_.size()) {
-        if (comp->compare(last->key(), pivots_[index].left_most_key) < 0) {
-            last++;
+    first.seek_to_first();
+    last.seek_to_first();
+
+    Comparator* cmp = tree_->options_.comparator;
+
+    while (last.valid() && idx < pivots_.size()) {
+        if (cmp->compare(last.key().key(), pivots_[idx].left_most_key) < 0) {
+            j++;
+            last.next();
         } else {
-            while (first != last) {
-                size_t size = pivots_[index-1].msgbuf->size();
-                pivots_[index-1].msgbuf->insert(*first);
-                node_page_size_ += pivots_[index-1].msgbuf->size() - size;
-                first++;
+            while (i != j) {
+                size_t sz = pivots_[idx-1].msgbuf->size();
+                pivots_[idx-1].msgbuf->insert(first.key());
+                node_page_size_ += pivots_[idx-1].msgbuf->size() - sz;
+                i++;
+                first.next();
             }
-            index++;
+            idx++;
         }
     }
-    while (first != msgbuf->end()) {
-        size_t size = pivots_[index-1].msgbuf->size();
-        pivots_[index-1].msgbuf->insert(*first);
-        node_page_size_ += pivots_[index-1].msgbuf->size() - size;
-        first++;
+
+    while (first.valid()) {
+        size_t sz = pivots_[idx-1].msgbuf->size();
+        pivots_[idx-1].msgbuf->insert(first.key());
+        node_page_size_ += pivots_[idx-1].msgbuf->size() - sz;
+        first.next();
     }
+
     size_t size = msgbuf->size();
-    msgbuf->release();
+    msgbuf->clear();
     msgbuf->unlock();
     set_dirty(true);
     parent->set_dirty(true);
@@ -197,52 +206,41 @@ void Node::split_msgbuf(MsgBuf* msgbuf)
         return;
     }
 
-    MsgBuf* srcbuf = msgbuf;
-    MsgBuf* dstbuf = new MsgBuf(tree_->options_.comparator);    
-    
-    size_t half = srcbuf->count() / 2;
+    MsgBuf* src = msgbuf;
+    MsgBuf* dst = new MsgBuf(tree_->options_.comparator);
 
-    srcbuf->lock();
+    src->lock();
 
-    // for (MsgBuf::Iterator it = srcbuf->begin(); it != srcbuf->end(); it++)
-    //     LOG_INFO << "before split_msgbuf, " << it->key().data();
+    MsgBuf::Iterator iter(&src->list_);
 
-    Slice half_key = (srcbuf->begin() + half)->key();
-    Slice key = srcbuf->begin()->key();
-    size_t size = srcbuf->size();
+    iter.seek_to_first();
+    assert(iter.valid());
+    Msg msg = iter.key();
 
-    MsgBuf::Iterator first = srcbuf->begin() + half;
-    MsgBuf::Iterator last  = srcbuf->end();
+    iter.seek_to_middle();
+    assert(iter.valid());
+    Msg middle = iter.key();
 
-    dstbuf->insert(dstbuf->begin(), first, last);
+    while (iter.valid()) {
+        dst->insert(iter.key());
+        iter.next();
+    }
 
-    srcbuf->resize(half);
-    srcbuf->unlock();
+    size_t sz = src->size();
+    src->resize(src->count() / 2);
+    src->unlock();
 
-    pivots_.insert(pivots_.begin() + find_pivot(key) + 1, 
-                   Pivot(NID_NIL, dstbuf, half_key.clone()));
+    pivots_.insert(pivots_.begin() + find_pivot(msg.key()) + 1,
+                   Pivot(NID_NIL, dst, middle.key().clone()));
 
-    node_page_size_ += srcbuf->size() + dstbuf->size() - size;
-
-    // LOG_INFO << "split_msgbuf, " 
-    //          << Fmt("%d ", half) << Fmt("%d ", dstbuf->count())
-    //          << half_key.data();
+    node_page_size_ += src->size() + dst->size() - sz;
 
     set_dirty(true);
     write_unlock();
 
     std::vector<Node*> locked_path;
-    tree_->lock_path(key, locked_path);
-
+    tree_->lock_path(msg.key(), locked_path);
      
-    // LOG_INFO << locked_path.back() << ' ' << self_nid_;
-    // assert(locked_path.back() == self_nid_);
-    // if (locked_path.back() != self_nid_) {
-    //     for (size_t i = 0; i < locked_path.size(); i++)
-    //         LOG_INFO << locked_path[i];
-    //     //assert(false);
-    // }
-
     if (!locked_path.empty()) {
         Node* node = locked_path.back();
         node->try_split_node(locked_path);
@@ -333,22 +331,14 @@ void Node::try_split_node(std::vector<Node*>& path)
         // Node* parent = tree_->get_node_by_nid(parent_nid_);
         Node* parent = path.back();
         assert(parent);
-        parent->add_pivot(half_key, node->self_nid_, self_nid_);
+        parent->add_pivot(half_key, node->self_nid_);
         parent->try_split_node(path);
     }
 }
 
-void Node::add_pivot(Slice key, nid_t child, nid_t child_sibling)
+void Node::add_pivot(Slice key, nid_t child)
 {
     MsgBuf* msgbuf = new MsgBuf(tree_->options_.comparator);
-
-    // for (size_t i = 0; i < pivots_.size(); i++) {
-    //     if (pivots_[i].child_nid == child_sibling) {
-    //         pivots_.insert(pivots_.begin() + i + 1,
-    //                        Pivot(child, msgbuf, key.clone()));
-    //         break;
-    //     }
-    // }
     size_t pivot_index = find_pivot(key);
 
     pivots_.insert(pivots_.begin() + pivot_index + 1, 
@@ -384,33 +374,39 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf, Node* parent)
 
     msgbuf->lock();
 
-    size_t index = 1;
-    MsgBuf::Iterator first = msgbuf->begin();
-    MsgBuf::Iterator last  = msgbuf->begin();
-    Comparator* comp = tree_->options_.comparator;
+    size_t idx = 1;
+    size_t i = 0, j = 0;
+    MsgBuf::Iterator first(&msgbuf->list_);
+    MsgBuf::Iterator last(&msgbuf->list_);
 
-    while (last != msgbuf->end() && index < pivots_.size()) {
-        if (comp->compare(last->key(), pivots_[index].left_most_key) < 0) {
-            last++;
+    first.seek_to_first();
+    last.seek_to_first();
+
+    Comparator* cmp = tree_->options_.comparator;
+
+    while (last.valid() && idx < pivots_.size()) {
+        if (cmp->compare(last.key().key(), pivots_[idx].left_most_key) < 0) {
+            j++;
+            last.next();
         } else {
-            while (first != last) {
-                // LOG_INFO << "push_down_during_lock_path, msg, " 
-                //          << first->key().data();
-                size_t size = pivots_[index-1].msgbuf->size();
-                pivots_[index-1].msgbuf->insert(*first);
-                node_page_size_ += pivots_[index-1].msgbuf->size() - size;
-                first++;
+            while (i != j) {
+                size_t sz = pivots_[idx-1].msgbuf->size();
+                pivots_[idx-1].msgbuf->insert(first.key());
+                node_page_size_ += pivots_[idx-1].msgbuf->size() - sz;
+                i++;
+                first.next();
             }
-            index++;
+            idx++;
         }
     }
-    while (first != msgbuf->end()) {
-        // LOG_INFO << "push_down_during_lock_path, msg, " << first->key().data();
-        size_t size = pivots_[index-1].msgbuf->size();
-        pivots_[index-1].msgbuf->insert(*first);
-        node_page_size_ += pivots_[index-1].msgbuf->size() - size;
-        first++;
+
+    while (first.valid()) {
+        size_t sz = pivots_[idx-1].msgbuf->size();
+        pivots_[idx-1].msgbuf->insert(first.key());
+        node_page_size_ += pivots_[idx-1].msgbuf->size() - sz;
+        first.next();
     }
+
     if (parent->node_page_size_ < msgbuf->size()) {
         LOG_INFO << Fmt("node page: %zu, ", parent->node_page_size_)
                  << Fmt("msgbuf size: %zu", msgbuf->size());
@@ -421,13 +417,18 @@ void Node::push_down_during_lock_path(MsgBuf* msgbuf, Node* parent)
     parent->node_page_size_ -= msgbuf->size();
     set_dirty(true);
     parent->set_dirty(true);
-    msgbuf->release();
+    msgbuf->clear();
     msgbuf->unlock();
 }
 
 size_t Node::size()
 {
-    return node_page_size_ + pivots_.size() * (sizeof(MsgBuf) + 8 + sizeof(Pivot));
+    size_t usage = node_page_size_;
+
+    for (size_t i = 0; i < pivots_.size(); i++)
+        usage += pivots_[i].msgbuf->memory_usage();
+
+    return usage + pivots_.size() * sizeof(Pivot);
 }
 
 size_t Node::write_back_size()

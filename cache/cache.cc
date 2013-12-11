@@ -152,7 +152,7 @@ void Cache::write_back()
             if (node->dirty()) {
                 dirty_size += size;
 
-                bool expire = 10.0 * options_.cache_dirty_node_expire < 
+                bool expire = 2.0 * options_.cache_dirty_node_expire < 
                         time_interval(now, node->get_first_write_timestamp());
 
                 if (expire && !node->flushing()) {
@@ -253,7 +253,7 @@ void Cache::flush_ready_nodes(std::vector<Node*>& ready_nodes)
     }
 
     Timestamp now = Timestamp::now();
-    double time = 60.0;
+    double time = 30.0;
     if (time_interval(now, last_checkpoint_timestamp) > time) {
         table_->flush_immediately();
         table_->truncate();
@@ -278,7 +278,7 @@ void Cache::maybe_eviction()
 {
     {
         ScopedMutex lock(cache_size_mutex_);
-        if (cache_size_ < options_.cache_limited_memory)
+        if (cache_size_ < options_.cache_limited_memory * 12 / 10)
             return;
     }
     evict_from_memory();

@@ -14,7 +14,7 @@ namespace yodb {
 
 class Arena;
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 class SkipList : boost::noncopyable {
 private:
     struct Node;
@@ -68,7 +68,7 @@ private:
     Node* find_less_than(const Key& key) const;
 };
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 struct SkipList<Key, Comparator>::Node {
     explicit Node(const Key& k) : key(k) { } 
 
@@ -82,7 +82,7 @@ private:
     Node* next_[1];
 };
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* 
 SkipList<Key, Comparator>::new_node(const Key& key, size_t height)
 {
@@ -92,34 +92,34 @@ SkipList<Key, Comparator>::new_node(const Key& key, size_t height)
     return new (alloc_ptr) Node(key);
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline SkipList<Key, Comparator>::Iterator::Iterator(const SkipList* list)
 {
     list_ = list;
     node_ = NULL;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline bool SkipList<Key, Comparator>::Iterator::valid() const 
 {
     return node_ != NULL;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline Key SkipList<Key, Comparator>::Iterator::key() const
 {
     assert(valid());
     return node_->key;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::next()
 {
     assert(valid());
     node_ = node_->next(0);
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::prev()
 {
     assert(valid());
@@ -129,19 +129,21 @@ inline void SkipList<Key, Comparator>::Iterator::prev()
         node_ = NULL;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::seek(const Key& target)
 {
     node_ = list_->find_greater_or_equal(target, NULL);
+    if (node_ == list_->head_)
+        node_ = NULL;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::seek_to_first()
 {
     node_ = list_->head_->next(0);
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::seek_to_middle()
 {
     int middle = list_->count_ / 2; 
@@ -152,7 +154,7 @@ inline void SkipList<Key, Comparator>::Iterator::seek_to_middle()
         node_ = node_->next(0);
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 inline void SkipList<Key, Comparator>::Iterator::seek_to_last()
 {
     Node* curr = list_->head_;
@@ -176,13 +178,13 @@ inline void SkipList<Key, Comparator>::Iterator::seek_to_last()
         node_ = NULL; 
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 bool SkipList<Key, Comparator>::equal(const Key& a, const Key& b) const
 {
     return compare_(a, b) == 0;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 int SkipList<Key, Comparator>::random_height()
 {
     static const size_t kBranching = 4;
@@ -194,7 +196,7 @@ int SkipList<Key, Comparator>::random_height()
     return height;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* 
 SkipList<Key, Comparator>::find_greater_or_equal(const Key& key, Node** prev) const
 {
@@ -218,7 +220,7 @@ SkipList<Key, Comparator>::find_greater_or_equal(const Key& key, Node** prev) co
     } 
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 typename SkipList<Key, Comparator>::Node* 
 SkipList<Key, Comparator>::find_less_than(const Key& key) const
 {
@@ -239,7 +241,7 @@ SkipList<Key, Comparator>::find_less_than(const Key& key) const
     }
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 SkipList<Key, Comparator>::SkipList(Comparator cmp)
     : arena_(), head_(new_node(Key(), kMaxHeight)),
       max_height_(1), count_(0), 
@@ -251,7 +253,7 @@ SkipList<Key, Comparator>::SkipList(Comparator cmp)
         head_->set_next(i, NULL);
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 void SkipList<Key, Comparator>::insert(const Key& key)
 {
     Node* prev[kMaxHeight];
@@ -268,7 +270,6 @@ void SkipList<Key, Comparator>::insert(const Key& key)
 
     if (next && equal(next->key, key)) {
         next->set_key(key);
-        assert(false);
     } else {
         Node* curr = new_node(key, height);
 
@@ -281,7 +282,7 @@ void SkipList<Key, Comparator>::insert(const Key& key)
     }
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 bool SkipList<Key, Comparator>::contains(const Key& key) const
 {
     Node* x = find_greater_or_equal(key, NULL);
@@ -292,7 +293,7 @@ bool SkipList<Key, Comparator>::contains(const Key& key) const
         return false;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 void SkipList<Key, Comparator>::erase(const Key& key)
 {
     Node* prev[kMaxHeight];
@@ -309,12 +310,13 @@ void SkipList<Key, Comparator>::erase(const Key& key)
     count_--;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 void SkipList<Key, Comparator>::resize(size_t size)
 {
     assert(size <= count_);
     
     std::vector<Key> keys;
+    keys.reserve(size);
 
     Iterator iter(this);
     iter.seek_to_first();
@@ -333,7 +335,7 @@ void SkipList<Key, Comparator>::resize(size_t size)
     count_ = size;
 }
 
-template<typename Key, class Comparator>
+template<class Key, class Comparator>
 void SkipList<Key, Comparator>::clear()
 {
     arena_.clear();

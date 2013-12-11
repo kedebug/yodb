@@ -49,7 +49,7 @@ public:
     Slice clone() const 
     {
         if (size_ == 0)
-            return Slice("", 0, true);
+            return Slice("", 0, false);
 
         char* s = new char[size_];
         assert(s);
