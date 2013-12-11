@@ -10,8 +10,10 @@ So I write this storage engine which named __yodb__ (__yo__ just helps for funny
 
 ## Performance
 ```
-
+fillseq       :        2.040 micros/op
+readseq       :        1.086 micros/op
 ```
+Each "op" above corresponds to a read/write of a single key/value pair. I.e., a random write benchmark goes at approximately 200,000 writes per second.
 
 ## Enjoy
 ```
