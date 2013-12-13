@@ -96,8 +96,12 @@ Node* Cache::get(nid_t nid)
 
     lock_nodes_.write_lock();
 
-    assert(nodes_.find(nid) == nodes_.end());
-    nodes_[nid] = node;
+    if (nodes_.find(nid) != nodes_.end()) {
+        delete node;
+        node = nodes_[nid];
+    } else {
+        nodes_[nid] = node;
+    }
     node->inc_ref();
 
     lock_nodes_.write_unlock();
@@ -162,9 +166,9 @@ void Cache::write_back()
             }
         }
 
-        LOG_INFO << Fmt("Memory total size: %zuK, ", total_size / 1024)
-                 << Fmt("expire size: %zuK, ", expired_size / 1024)
-                 << Fmt("cache size: %zuK", options_.cache_limited_memory / 1024);
+        // LOG_INFO << Fmt("Memory total size: %zuK, ", total_size / 1024)
+        //          << Fmt("expire size: %zuK, ", expired_size / 1024)
+        //          << Fmt("cache size: %zuK", options_.cache_limited_memory / 1024);
 
         lock_nodes_.read_unlock();
         {
@@ -190,10 +194,12 @@ void Cache::write_back()
             if (flush_size > goal) break;
         }
 
-        LOG_INFO << Fmt("Memory dirty size: %zuK", dirty_size / 1024);
+        // LOG_INFO << Fmt("Memory dirty size: %zuK", dirty_size / 1024);
 
-        bool maybe = (dirty_size - flush_size) >
-                (options_.cache_limited_memory / 100 * 30);
+        size_t overage = options_.cache_limited_memory / 100 * 30;
+        bool maybe = (dirty_size - flush_size) > overage;
+
+        goal += goal * (dirty_size - flush_size) / overage;
 
         if (maybe && flush_size < goal) {
             lock_nodes_.read_lock();
@@ -209,6 +215,8 @@ void Cache::write_back()
 
             lock_nodes_.read_unlock();
 
+            std::sort(maybe_nodes.begin(), maybe_nodes.end(), comparator);
+
             for (size_t i = 0; i < maybe_nodes.size(); i++) {
                 Node* node = maybe_nodes[i];
                 size_t size = node->size();
@@ -218,15 +226,17 @@ void Cache::write_back()
                     flush_size += size;
                     flush_nodes.push_back(node);
                 }
+
+                if (flush_size > goal) break;
             }
         }
         
-        LOG_INFO << Fmt("Memory flush size: %zuK", flush_size / 1024);
+        // LOG_INFO << Fmt("Memory flush size: %zuK", flush_size / 1024);
 
         if (flush_nodes.size())
             flush_ready_nodes(flush_nodes);
 
-        ::usleep(1000 * 1000); // 1s
+        ::usleep(1000 * 100); // 100ms
     }
 }
 
@@ -278,7 +288,7 @@ void Cache::maybe_eviction()
 {
     {
         ScopedMutex lock(cache_size_mutex_);
-        if (cache_size_ < options_.cache_limited_memory * 12 / 10)
+        if (cache_size_ < options_.cache_limited_memory)
             return;
     }
     evict_from_memory();
@@ -340,5 +350,5 @@ void Cache::evict_from_memory()
 
     lock_nodes_.write_unlock();
 
-    LOG_INFO << Fmt("evict %zuK bytes from memory", evict_size / 1024);
+    // LOG_INFO << Fmt("evict %zuK bytes from memory", evict_size / 1024);
 }

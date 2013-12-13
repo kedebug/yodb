@@ -1,6 +1,8 @@
 #ifndef _YODB_ARENA_H_
 #define _YODB_ARENA_H_
 
+#include "sys/mutex.h"
+
 #include <cstddef>
 #include <stdlib.h>
 #include <stdint.h>
@@ -35,6 +37,8 @@ private:
 
     char* alloc_ptr_;
     size_t remaining_;
+
+    mutable Mutex mutex_;
 
     std::vector<char*> blocks_;
     size_t blocks_size_;

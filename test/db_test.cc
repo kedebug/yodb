@@ -40,9 +40,8 @@ void read(DBImpl* db)
 
         if (key.compare(value) != 0)
             read_failed_count++;
-        // else 
-        //    printf("key=%s, get=%s, success\n", key.data(), value.data());
 
+        value.release();
     } 
 
     LOG_INFO << Fmt("%zu read failed", read_failed_count);

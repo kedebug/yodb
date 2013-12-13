@@ -84,7 +84,6 @@ public:
     bool find(Slice key, Msg& msg);
 
     void insert(const Msg& msg);
-    void insert(Iterator pos, Iterator first, Iterator last);
 
     bool constrcutor(BlockReader& reader);
     bool destructor(BlockWriter& writer);

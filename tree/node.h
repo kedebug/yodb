@@ -65,15 +65,17 @@ public:
     void maybe_push_down_or_split();
 
     // internal node would push down the table when it is full 
-    void push_down_table(MsgTable* table, Node* parent);
+    void push_down(MsgTable* table, Node* parent);
 
     // only the leaf node would split table when it is full
     void split_table(MsgTable* table);
 
+    void insert_msg(size_t index, const Msg& msg);
+
     typedef std::vector<Pivot> Container;
 
     void lock_path(const Slice& key, std::vector<Node*>& path);
-    void push_down_during_lock_path(MsgTable* table, Node* parent);
+    void push_down_locked(MsgTable* table, Node* parent);
 
     bool try_read_lock()    { return rwlock_.try_read_lock(); }
     bool try_write_lock()   { return rwlock_.try_write_lock(); }
@@ -102,7 +104,6 @@ public:
     bool destructor(BlockWriter& writer);
 
 private:
-    // set public to make current work(including test) more easier.
 public:
     BufferTree* tree_;
     nid_t self_nid_;
@@ -110,7 +111,6 @@ public:
     bool is_leaf_;
     size_t refcnt_;
 
-    size_t node_page_size_;
     Container pivots_; 
     RWLock rwlock_;
 

@@ -15,7 +15,8 @@ MsgTable::~MsgTable()
     iter.seek_to_first();
 
     while (iter.valid()) {
-        iter.key().release();
+        Msg msg = iter.key();
+        msg.release();
         iter.next();
     }
 
@@ -47,7 +48,7 @@ void MsgTable::clear()
 
 void MsgTable::insert(const Msg& msg)
 {
-    ScopedMutex lock(mutex_);
+    assert(mutex_.is_locked_by_this_thread());
 
     Iterator iter(&list_);
     Msg got;

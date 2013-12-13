@@ -35,7 +35,7 @@ public:
         explicit Iterator(const SkipList* list);
 
         bool valid() const;
-        Key key() const;
+        const Key& key() const;
         void next();
         void prev();
 
@@ -106,7 +106,7 @@ inline bool SkipList<Key, Comparator>::Iterator::valid() const
 }
 
 template<class Key, class Comparator>
-inline Key SkipList<Key, Comparator>::Iterator::key() const
+inline const Key& SkipList<Key, Comparator>::Iterator::key() const
 {
     assert(valid());
     return node_->key;

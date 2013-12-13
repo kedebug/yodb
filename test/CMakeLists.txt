@@ -17,8 +17,8 @@ set(GSOURCE
 # add_executable(rwlock rwlock_test.cc)
 # target_link_libraries(rwlock yodb)
 # 
-# add_executable(dbimpl dbimpl_test.cc)
-# target_link_libraries(dbimpl yodb)
+add_executable(dbimpl dbimpl_test.cc)
+target_link_libraries(dbimpl yodb)
 # 
 # add_executable(file file_test.cc)
 # target_link_libraries(file yodb)
