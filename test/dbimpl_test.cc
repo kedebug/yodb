@@ -11,7 +11,7 @@
 
 using namespace yodb;
 
-const uint64_t kCount = 10 * 1000 * 1000;
+const uint64_t kCount = 200;
 
 DBImpl* g_db;
 
@@ -94,8 +94,8 @@ int main()
 {
     Options opts;
     opts.comparator = new BytewiseComparator();
-    opts.max_node_child_number = 16;
-    opts.max_node_msg_count = 10240;
+    opts.max_node_child_number = 2;
+    opts.max_node_msg_count = 2;
     opts.cache_limited_memory = 1 << 28;
     opts.env = new Env("/home/kedebug/develop/yodb/bin");
 

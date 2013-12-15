@@ -25,14 +25,15 @@ bool Node::get(const Slice& key, Slice& value, Node* parent)
 {
     read_lock();
 
-    if (parent)
+    if (parent) {
         parent->read_unlock();
+    }
 
     size_t index = find_pivot(key);
     MsgTable* table = pivots_[index].table;
-    assert(table);
 
     table->lock();
+
     Msg lookup;
     if (table->find(key, lookup) && lookup.key() == key) {
         if (lookup.type() == Put) {
@@ -66,10 +67,10 @@ bool Node::write(const Msg& msg)
 {
     assert(pivots_.size());
 
-    is_leaf_ ? write_lock() : read_lock();
+    optional_lock();
 
-    if (parent_nid_ != NID_NIL) {
-        is_leaf_ ? write_unlock() : read_unlock();
+    if (tree_->root_->nid() != self_nid_) {
+        optional_unlock();
         return tree_->root_->write(msg);
     }
 
@@ -83,15 +84,19 @@ bool Node::write(const Msg& msg)
 void Node::maybe_push_down_or_split()
 {
     int index = -1;
+
     for (size_t i = 0; i < pivots_.size(); i++) {
-        if (pivots_[i].table->count() > tree_->options_.max_node_msg_count) {
+        if (pivots_[i].table->count() > 
+            tree_->options_.max_node_msg_count) {
             index = i; break;
         }
     }
+
     if (index < 0) {
-        is_leaf_ ?  write_unlock() : read_unlock();
+        optional_unlock();
         return;
     }
+
     if (pivots_[index].child_nid != NID_NIL) {
         MsgTable* table = pivots_[index].table;
         Node* node = tree_->get_node_by_nid(pivots_[index].child_nid);
@@ -101,7 +106,7 @@ void Node::maybe_push_down_or_split()
         split_table(pivots_[index].table);
     }
 
-    is_leaf_ ? write_lock() : read_lock();
+    optional_lock();
     maybe_push_down_or_split();
 }
 
@@ -124,10 +129,10 @@ size_t Node::find_pivot(Slice key)
         return 0;
 
     size_t pivot = 0;
-    Comparator* comp = tree_->options_.comparator;
+    Comparator* cmp = tree_->options_.comparator;
 
     for (size_t i = 1; i < pivots_.size(); i++) {
-        if (comp->compare(key, pivots_[i].left_most_key) < 0) {
+        if (cmp->compare(key, pivots_[i].left_most_key) < 0) {
             return pivot;
         }
         pivot++;
@@ -139,55 +144,54 @@ void Node::push_down(MsgTable* table, Node* parent)
 {
     // LOG_INFO << "push_down, " << Fmt("self=%d", self_nid_);
 
-    is_leaf_ ? write_lock() : read_lock();
+    optional_lock();
 
-    table->lock();
+    push_down_locked(table, parent);
+    // table->lock();
 
-    if (table->count() == 0) {
-        table->unlock();
-        parent->read_unlock();
-        is_leaf_ ? write_unlock() : read_unlock();
-        return;
-    }
+    // if (table->count() == 0) {
+    //     table->unlock();
+    //     parent->read_unlock();
+    //     optional_unlock();
+    //     return;
+    // }
 
-    size_t idx = 1;
-    size_t i = 0, j = 0;
-    MsgTable::Iterator first(&table->list_);
-    MsgTable::Iterator last(&table->list_);
+    // size_t idx = 1;
+    // size_t i = 0, j = 0;
+    // MsgTable::Iterator first(&table->list_);
+    // MsgTable::Iterator last(&table->list_);
 
-    first.seek_to_first();
-    last.seek_to_first();
+    // first.seek_to_first();
+    // last.seek_to_first();
 
-    Comparator* cmp = tree_->options_.comparator;
+    // Comparator* cmp = tree_->options_.comparator;
 
-    while (last.valid() && idx < pivots_.size()) {
-        if (cmp->compare(last.key().key(), pivots_[idx].left_most_key) < 0) {
-            j++;
-            last.next();
-        } else {
-            while (i != j) {
-                insert_msg(idx - 1, first.key());
-                i++;
-                first.next();
-            }
-            idx++;
-        }
-    }
+    // while (last.valid() && idx < pivots_.size()) {
+    //     if (cmp->compare(last.key().key(), pivots_[idx].left_most_key) < 0) {
+    //         j++;
+    //         last.next();
+    //     } else {
+    //         while (i != j) {
+    //             insert_msg(idx - 1, first.key());
+    //             i++;
+    //             first.next();
+    //         }
+    //         idx++;
+    //     }
+    // }
 
-    while (first.valid()) {
-        insert_msg(idx - 1, first.key());
-        first.next();
-    }
+    // while (first.valid()) {
+    //     insert_msg(idx - 1, first.key());
+    //     first.next();
+    // }
 
-    size_t size = table->size();
-    table->clear();
-    set_dirty(true);
-    parent->set_dirty(true);
-    assert(size >= table->size());
+    // table->clear();
+    // set_dirty(true);
+    // parent->set_dirty(true);
+    // assert(size >= table->size());
 
-    table->unlock();
+    // table->unlock();
 
-    assert(parent->is_leaf_ == false);
     parent->read_unlock();
 
     maybe_push_down_or_split();
@@ -202,12 +206,12 @@ void Node::split_table(MsgTable* table)
         return;
     }
 
-    MsgTable* src = table;
-    MsgTable* dst = new MsgTable(tree_->options_.comparator);
+    MsgTable* table0 = table;
+    MsgTable* table1 = new MsgTable(tree_->options_.comparator);
 
-    src->lock();
+    table0->lock();
 
-    MsgTable::Iterator iter(&src->list_);
+    MsgTable::Iterator iter(&table0->list_);
 
     iter.seek_to_first();
     assert(iter.valid());
@@ -217,22 +221,22 @@ void Node::split_table(MsgTable* table)
     assert(iter.valid());
     Msg middle = iter.key();
 
-    dst->lock();
+    table1->lock();
     while (iter.valid()) {
-        dst->insert(iter.key());
+        table1->insert(iter.key());
         iter.next();
     }
 
-    size_t sz = src->size();
-    src->resize(src->count() / 2);
+    size_t sz = table0->size();
+    table0->resize(table0->count() / 2);
 
     pivots_.insert(pivots_.begin() + find_pivot(msg.key()) + 1,
-                   Pivot(NID_NIL, dst, middle.key().clone()));
+                   Pivot(NID_NIL, table1, middle.key().clone()));
 
-    assert(src->size() + dst->size() >= sz);
+    assert(table0->size() + table1->size() >= sz);
 
-    dst->unlock();
-    src->unlock();
+    table1->unlock();
+    table0->unlock();
 
     set_dirty(true);
     write_unlock();
@@ -260,18 +264,17 @@ void Node::try_split_node(std::vector<Node*>& path)
         return;
     }
 
-    size_t half = pivots_.size() / 2;
-    Slice half_key = pivots_[half].left_most_key;
-    size_t half_size = 0;
+    size_t middle = pivots_.size() / 2;
+    Slice middle_key = pivots_[middle].left_most_key;
 
-    // LOG_INFO << "try_split_node, " << half_key.data();
+    // LOG_INFO << "try_split_node, " << middle_key.data();
 
     // TODO: consider remove parent_nid_ class member
     Node* node = tree_->create_node();
     node->is_leaf_ = is_leaf_;
     node->parent_nid_ = parent_nid_;
     
-    Container::iterator first = pivots_.begin() + half;
+    Container::iterator first = pivots_.begin() + middle;
     Container::iterator last  = pivots_.end();
 
     for (Container::iterator iter = first; iter != last; iter++) {
@@ -280,19 +283,16 @@ void Node::try_split_node(std::vector<Node*>& path)
             child->parent_nid_ = node->self_nid_;
             child->dec_ref();
         }
-
-        half_size += iter->table->size();
     }
+
     node->pivots_.insert(node->pivots_.begin(), first, last);
     node->set_dirty(true);
     node->dec_ref();
 
-    pivots_.resize(half); 
+    pivots_.resize(middle); 
     set_dirty(true);
 
     path.pop_back();
-    write_unlock();
-    dec_ref();
 
     if (path.empty()) {
         Node* root = tree_->create_node();
@@ -306,7 +306,7 @@ void Node::try_split_node(std::vector<Node*>& path)
 
         root->pivots_.reserve(2);
         root->pivots_.insert(root->pivots_.begin(), 
-                             Pivot(node->self_nid_, right, half_key.clone()));
+                             Pivot(node->self_nid_, right, middle_key.clone()));
         root->pivots_.insert(root->pivots_.begin(), 
                              Pivot(self_nid_, left));
 
@@ -315,9 +315,12 @@ void Node::try_split_node(std::vector<Node*>& path)
     } else {
         Node* parent = path.back();
 
-        parent->add_pivot(half_key, node->self_nid_);
+        parent->add_pivot(middle_key, node->self_nid_);
         parent->try_split_node(path);
     }
+
+    write_unlock();
+    dec_ref();
 }
 
 void Node::add_pivot(Slice key, nid_t child)
@@ -358,31 +361,31 @@ void Node::push_down_locked(MsgTable* table, Node* parent)
 
     size_t idx = 1;
     size_t i = 0, j = 0;
-    MsgTable::Iterator first(&table->list_);
-    MsgTable::Iterator last(&table->list_);
+    MsgTable::Iterator slow(&table->list_);
+    MsgTable::Iterator fast(&table->list_);
 
-    first.seek_to_first();
-    last.seek_to_first();
+    slow.seek_to_first();
+    fast.seek_to_first();
 
     Comparator* cmp = tree_->options_.comparator;
 
-    while (last.valid() && idx < pivots_.size()) {
-        if (cmp->compare(last.key().key(), pivots_[idx].left_most_key) < 0) {
+    while (fast.valid() && idx < pivots_.size()) {
+        if (cmp->compare(fast.key().key(), pivots_[idx].left_most_key) < 0) {
             j++;
-            last.next();
+            fast.next();
         } else {
             while (i != j) {
-                insert_msg(idx - 1, first.key());
+                insert_msg(idx - 1, slow.key());
                 i++;
-                first.next();
+                slow.next();
             }
             idx++;
         }
     }
 
-    while (first.valid()) {
-        insert_msg(idx - 1, first.key());
-        first.next();
+    while (slow.valid()) {
+        insert_msg(idx - 1, slow.key());
+        slow.next();
     }
 
     set_dirty(true);

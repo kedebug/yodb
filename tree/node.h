@@ -52,6 +52,9 @@ public:
 
     bool write(const Msg& msg);
 
+    nid_t nid()             { return self_nid_; }
+    void set_nid(nid_t nid) { self_nid_ = nid; }
+
     // when the leaf node's number of pivot is out of limit,
     // it then will split the node and push up the split operation.
     void try_split_node(std::vector<Node*>& path);
@@ -85,6 +88,9 @@ public:
 
     void write_lock()       { rwlock_.write_lock(); }
     void write_unlock()     { rwlock_.write_unlock(); }
+
+    void optional_lock()    { is_leaf_ ? write_lock() : read_lock(); }
+    void optional_unlock()  { is_leaf_ ? write_unlock() : read_unlock(); }
 
 
     void set_dirty(bool modified);
