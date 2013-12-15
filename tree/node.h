@@ -35,53 +35,22 @@ public:
     Node(BufferTree* tree, nid_t self);
     ~Node();
 
+    void create_first_pivot();
+
     bool get(const Slice& key, Slice& value, Node* parent = NULL);
 
-    bool put(const Slice& key, const Slice& value)
-    {
-        return write(Msg(Put, key.clone(), value.clone()));
-    }
+    bool put(const Slice& key, const Slice& value);
 
-    bool del(const Slice& key)
-    {
-        return write(Msg(Del, key.clone()));
-    }
+    bool del(const Slice& key);
     
+    bool write(const Msg& msg);
+
     size_t size();
     size_t write_back_size();
 
-    bool write(const Msg& msg);
-
-    nid_t nid()             { return self_nid_; }
-    void set_nid(nid_t nid) { self_nid_ = nid; }
-
-    // when the leaf node's number of pivot is out of limit,
-    // it then will split the node and push up the split operation.
-    void try_split_node(std::vector<Node*>& path);
-
-    void create_first_pivot();
-    // find which pivot matches the key
-    size_t find_pivot(Slice key);
-    void add_pivot(Slice key, nid_t child);
-
-    // maybe push down or split the table
-    void maybe_push_down_or_split();
-
-    // internal node would push down the table when it is full 
-    void push_down(MsgTable* table, Node* parent);
-
-    // only the leaf node would split table when it is full
-    void split_table(MsgTable* table);
-
-    void insert_msg(size_t index, const Msg& msg);
-
-    typedef std::vector<Pivot> Container;
-
-    void lock_path(const Slice& key, std::vector<Node*>& path);
-    void push_down_locked(MsgTable* table, Node* parent);
-
-    bool try_read_lock()    { return rwlock_.try_read_lock(); }
-    bool try_write_lock()   { return rwlock_.try_write_lock(); }
+    nid_t nid();
+    void set_nid(nid_t nid); 
+    void set_leaf(bool leaf);
 
     void read_lock()        { rwlock_.read_lock(); }
     void read_unlock()      { rwlock_.read_unlock(); }
@@ -89,9 +58,8 @@ public:
     void write_lock()       { rwlock_.write_lock(); }
     void write_unlock()     { rwlock_.write_unlock(); }
 
-    void optional_lock()    { is_leaf_ ? write_lock() : read_lock(); }
-    void optional_unlock()  { is_leaf_ ? write_unlock() : read_unlock(); }
-
+    bool try_read_lock()    { return rwlock_.try_read_lock(); }
+    bool try_write_lock()   { return rwlock_.try_write_lock(); }
 
     void set_dirty(bool modified);
     bool dirty();
@@ -109,11 +77,38 @@ public:
     bool constrcutor(BlockReader& reader);
     bool destructor(BlockWriter& writer);
 
+    void lock_path(const Slice& key, std::vector<Node*>& path);
+
 private:
-public:
+    // when the leaf node's number of pivot is out of limit,
+    // it then will split the node and push up the split operation.
+    void try_split_node(std::vector<Node*>& path);
+
+    // find which pivot matches the key
+    size_t find_pivot(Slice key);
+    void add_pivot(Slice key, nid_t child);
+
+    // maybe push down or split the table
+    void maybe_push_down_or_split();
+
+    // internal node would push down the table when it is full 
+    void push_down(MsgTable* table, Node* parent);
+
+    // only the leaf node would split table when it is full
+    void split_table(MsgTable* table);
+
+    void insert_msg(size_t index, const Msg& msg);
+
+    typedef std::vector<Pivot> Container;
+
+    void push_down_locked(MsgTable* table, Node* parent);
+
+    void optional_lock()    { is_leaf_ ? write_lock() : read_lock(); }
+    void optional_unlock()  { is_leaf_ ? write_unlock() : read_unlock(); }
+
+private:
     BufferTree* tree_;
     nid_t self_nid_;
-    nid_t parent_nid_;
     bool is_leaf_;
     size_t refcnt_;
 

@@ -17,7 +17,7 @@ BufferTree::~BufferTree()
     if (root_) {
         root_->dec_ref();
         assert(root_->refs() == 0);
-        table_->set_root_nid(root_->self_nid_);
+        table_->set_root_nid(root_->nid());
     }
 
     LOG_INFO << Fmt("%zu nodes created", node_count_);
@@ -41,7 +41,7 @@ bool BufferTree::init()
         assert(node_count_ == 0);
 
         root_ = create_node();
-        root_->is_leaf_ = true;
+        root_->set_leaf(true);
         root_->create_first_pivot();
     }
 
@@ -54,7 +54,7 @@ void BufferTree::grow_up(Node* root)
 
     root_->dec_ref();
     root_ = root;
-    table_->set_root_nid(root_->self_nid_);
+    table_->set_root_nid(root_->nid());
 }
 
 Node* BufferTree::create_node()

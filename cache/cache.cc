@@ -86,7 +86,7 @@ Node* Cache::get(nid_t nid)
     BlockReader reader(*block);
     Node* node = tree_->create_node(nid);
 
-    assert(node->self_nid_ == nid);
+    assert(node->nid() == nid);
 
     if (!(node->constrcutor(reader))){
         assert(false);
@@ -258,7 +258,7 @@ void Cache::flush_ready_nodes(std::vector<Node*>& ready_nodes)
         node->set_dirty(false);
         node->write_unlock();
 
-        table_->async_write(node->self_nid_, block,
+        table_->async_write(node->nid(), block,
             boost::bind(&Cache::write_complete_handler, this, node, alloc_ptr, _1)); 
     }
 
@@ -280,7 +280,7 @@ void Cache::write_complete_handler(Node* node, Slice alloc_ptr, Status status)
     table_->self_dealloc(alloc_ptr);
 
     if (!status.succ) {
-        LOG_ERROR << "write back node failed, nid=" << node->self_nid_;
+        LOG_ERROR << "write back node failed, nid=" << node->nid();
     }
 }
 
@@ -305,7 +305,7 @@ void Cache::evict_from_memory()
 
     for (NodeMap::iterator it = nodes_.begin(); it != nodes_.end(); it++) {
         Node* node = it->second;
-        assert(node->self_nid_ == it->first);
+        assert(node->nid() == it->first);
 
         size_t size = node->size();
         total_size += size;
@@ -336,7 +336,7 @@ void Cache::evict_from_memory()
         assert(!node->flushing());
 
         evict_size += size;
-        nodes_.erase(node->self_nid_);
+        nodes_.erase(node->nid());
 
         delete node;
 

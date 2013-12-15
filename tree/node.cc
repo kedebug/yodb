@@ -4,9 +4,11 @@
 using namespace yodb;
 
 Node::Node(BufferTree* tree, nid_t self)
-    : tree_(tree), self_nid_(self), parent_nid_(NID_NIL), 
-      refcnt_(0), pivots_(), rwlock_(), 
-      mutex_(), dirty_(false), flushing_(false)
+    : tree_(tree), 
+      self_nid_(self), 
+      refcnt_(0), 
+      dirty_(false), 
+      flushing_(false)
 {
 }
 
@@ -14,8 +16,11 @@ Node::~Node()
 {
     for (size_t i = 0; i < pivots_.size(); i++) {
         Pivot& pivot = pivots_[i];
-        if (pivot.left_most_key.size())
+
+        if (pivot.left_most_key.size()) {
             pivot.left_most_key.release();
+        }
+
         delete pivot.table;
     }
     pivots_.clear();
@@ -63,6 +68,16 @@ bool Node::get(const Slice& key, Slice& value, Node* parent)
     return exists;
 }
 
+bool Node::put(const Slice& key, const Slice& value)
+{
+    return write(Msg(Put, key.clone(), value.clone()));
+}
+
+bool Node::del(const Slice& key)
+{
+    return write(Msg(Del, key.clone()));
+}
+    
 bool Node::write(const Msg& msg)
 {
     assert(pivots_.size());
@@ -142,56 +157,9 @@ size_t Node::find_pivot(Slice key)
 
 void Node::push_down(MsgTable* table, Node* parent)
 {
-    // LOG_INFO << "push_down, " << Fmt("self=%d", self_nid_);
-
     optional_lock();
 
     push_down_locked(table, parent);
-    // table->lock();
-
-    // if (table->count() == 0) {
-    //     table->unlock();
-    //     parent->read_unlock();
-    //     optional_unlock();
-    //     return;
-    // }
-
-    // size_t idx = 1;
-    // size_t i = 0, j = 0;
-    // MsgTable::Iterator first(&table->list_);
-    // MsgTable::Iterator last(&table->list_);
-
-    // first.seek_to_first();
-    // last.seek_to_first();
-
-    // Comparator* cmp = tree_->options_.comparator;
-
-    // while (last.valid() && idx < pivots_.size()) {
-    //     if (cmp->compare(last.key().key(), pivots_[idx].left_most_key) < 0) {
-    //         j++;
-    //         last.next();
-    //     } else {
-    //         while (i != j) {
-    //             insert_msg(idx - 1, first.key());
-    //             i++;
-    //             first.next();
-    //         }
-    //         idx++;
-    //     }
-    // }
-
-    // while (first.valid()) {
-    //     insert_msg(idx - 1, first.key());
-    //     first.next();
-    // }
-
-    // table->clear();
-    // set_dirty(true);
-    // parent->set_dirty(true);
-    // assert(size >= table->size());
-
-    // table->unlock();
-
     parent->read_unlock();
 
     maybe_push_down_or_split();
@@ -269,21 +237,11 @@ void Node::try_split_node(std::vector<Node*>& path)
 
     // LOG_INFO << "try_split_node, " << middle_key.data();
 
-    // TODO: consider remove parent_nid_ class member
     Node* node = tree_->create_node();
     node->is_leaf_ = is_leaf_;
-    node->parent_nid_ = parent_nid_;
     
     Container::iterator first = pivots_.begin() + middle;
     Container::iterator last  = pivots_.end();
-
-    for (Container::iterator iter = first; iter != last; iter++) {
-        if (iter->child_nid != NID_NIL) {
-            Node* child = tree_->get_node_by_nid(iter->child_nid);
-            child->parent_nid_ = node->self_nid_;
-            child->dec_ref();
-        }
-    }
 
     node->pivots_.insert(node->pivots_.begin(), first, last);
     node->set_dirty(true);
@@ -297,9 +255,6 @@ void Node::try_split_node(std::vector<Node*>& path)
     if (path.empty()) {
         Node* root = tree_->create_node();
         root->is_leaf_ = false;
-
-        parent_nid_ = root->self_nid_;
-        node->parent_nid_ = root->self_nid_;
 
         MsgTable* left = new MsgTable(tree_->options_.comparator);
         MsgTable* right = new MsgTable(tree_->options_.comparator);
@@ -323,6 +278,10 @@ void Node::try_split_node(std::vector<Node*>& path)
     dec_ref();
 }
 
+// void Node::add_pivot(nid_t child, MsgTable* table, const Slice& key)
+// {
+// }
+
 void Node::add_pivot(Slice key, nid_t child)
 {
     MsgTable* table = new MsgTable(tree_->options_.comparator);
@@ -345,7 +304,6 @@ void Node::lock_path(const Slice& key, std::vector<Node*>& path)
 
         node->write_lock();
         node->push_down_locked(pivots_[index].table, this);
-        assert(node->parent_nid_ == path.back()->self_nid_);
         node->lock_path(key, path);
     }
 }
@@ -420,7 +378,6 @@ size_t Node::write_back_size()
     size_t size = 0;
 
     size += 8;      // self_nid_
-    size += 8;      // parent_nid_
     size += 1;      // is_leaf
     size += 4;      // number of pivots
 
@@ -435,7 +392,7 @@ size_t Node::write_back_size()
 
 bool Node::constrcutor(BlockReader& reader)
 {
-    reader >> self_nid_ >> parent_nid_ >> is_leaf_;
+    reader >> self_nid_ >> is_leaf_;
 
     uint32_t pivots = 0;
     reader >> pivots;
@@ -462,7 +419,7 @@ bool Node::constrcutor(BlockReader& reader)
 
 bool Node::destructor(BlockWriter& writer)
 {
-    writer << self_nid_ << parent_nid_ << is_leaf_;
+    writer << self_nid_ << is_leaf_;
 
     uint32_t pivots = pivots_.size();
     assert(pivots > 0);
@@ -476,6 +433,24 @@ bool Node::destructor(BlockWriter& writer)
     }
 
     return writer.ok();
+}
+
+nid_t Node::nid() 
+{
+    ScopedMutex lock(mutex_);
+    return self_nid_;
+}
+
+void Node::set_nid(nid_t nid)
+{
+    ScopedMutex lock(mutex_);
+    self_nid_ = nid;
+}
+
+void Node::set_leaf(bool leaf)
+{
+    ScopedMutex lock(mutex_);
+    is_leaf_ = leaf;
 }
 
 void Node::set_dirty(bool dirty)

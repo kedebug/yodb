@@ -38,7 +38,6 @@ public:
     void  lock_path(const Slice& key, std::vector<Node*>& path);
 
 private:
-public:
     friend class Node;
 
     std::string name_;
