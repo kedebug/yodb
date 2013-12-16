@@ -179,7 +179,7 @@ void Node::split_table(MsgTable* table)
 
     table0->lock();
 
-    MsgTable::Iterator iter(&table0->list_);
+    MsgTable::Iterator iter(table0->skiplist());
 
     iter.seek_to_first();
     assert(iter.valid());
@@ -319,8 +319,8 @@ void Node::push_down_locked(MsgTable* table, Node* parent)
 
     size_t idx = 1;
     size_t i = 0, j = 0;
-    MsgTable::Iterator slow(&table->list_);
-    MsgTable::Iterator fast(&table->list_);
+    MsgTable::Iterator slow(table->skiplist());
+    MsgTable::Iterator fast(table->skiplist());
 
     slow.seek_to_first();
     fast.seek_to_first();

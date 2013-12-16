@@ -94,8 +94,8 @@ public:
     void lock()         { mutex_.lock(); }
     void unlock()       { mutex_.unlock(); }
 
+    List* skiplist()    { return &list_; }
 private:
-public:
     List list_;
     Comparator* comparator_;
     Mutex mutex_;
