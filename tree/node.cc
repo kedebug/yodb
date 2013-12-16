@@ -130,9 +130,7 @@ void Node::create_first_pivot()
     write_lock();
 
     assert(pivots_.size() == 0);
-    MsgTable* table = new MsgTable(tree_->options_.comparator); 
-
-    pivots_.insert(pivots_.begin(), Pivot(NID_NIL, table));
+    add_pivot(NID_NIL, NULL, Slice());
     set_dirty(true);
 
     write_unlock();
@@ -198,8 +196,7 @@ void Node::split_table(MsgTable* table)
     size_t sz = table0->size();
     table0->resize(table0->count() / 2);
 
-    pivots_.insert(pivots_.begin() + find_pivot(msg.key()) + 1,
-                   Pivot(NID_NIL, table1, middle.key().clone()));
+    add_pivot(NID_NIL, table1, middle.key().clone());
 
     assert(table0->size() + table1->size() >= sz);
 
@@ -256,16 +253,10 @@ void Node::try_split_node(std::vector<Node*>& path)
         Node* root = tree_->create_node();
         root->is_leaf_ = false;
 
-        MsgTable* left = new MsgTable(tree_->options_.comparator);
-        MsgTable* right = new MsgTable(tree_->options_.comparator);
-
-        root->pivots_.reserve(2);
-        root->pivots_.insert(root->pivots_.begin(), 
-                             Pivot(node->self_nid_, right, middle_key.clone()));
-        root->pivots_.insert(root->pivots_.begin(), 
-                             Pivot(self_nid_, left));
-
+        root->add_pivot(nid(), NULL, Slice());
+        root->add_pivot(node->nid(), NULL, middle_key.clone());
         root->set_dirty(true);
+
         tree_->grow_up(root);
     } else {
         Node* parent = path.back();
@@ -278,19 +269,26 @@ void Node::try_split_node(std::vector<Node*>& path)
     dec_ref();
 }
 
-// void Node::add_pivot(nid_t child, MsgTable* table, const Slice& key)
-// {
-// }
-
-void Node::add_pivot(Slice key, nid_t child)
+void Node::add_pivot(nid_t child, MsgTable* table, Slice key)
 {
-    MsgTable* table = new MsgTable(tree_->options_.comparator);
-    size_t pivot_index = find_pivot(key);
+    ScopedMutex lock(pivots_mutex_);
 
-    pivots_.insert(pivots_.begin() + pivot_index + 1, 
-                   Pivot(child, table, key.clone()));
+    if (key.size() == 0) {
+        assert(table == NULL);
+        assert(pivots_.size() == 0);
 
-    set_dirty(true);
+        table = new MsgTable(tree_->options_.comparator);
+        pivots_.push_back(Pivot(child, table, key));
+    } else {
+        assert(pivots_.size());
+
+        if (table == NULL) {
+            table = new MsgTable(tree_->options_.comparator);
+        }
+
+        size_t idx = find_pivot(key);
+        pivots_.insert(pivots_.begin() + idx + 1, Pivot(child, table, key));
+    }
 }
 
 void Node::lock_path(const Slice& key, std::vector<Node*>& path)
@@ -363,14 +361,14 @@ void Node::insert_msg(size_t index, const Msg& msg)
 
 size_t Node::size()
 {
+    ScopedMutex lock(pivots_mutex_);
+
     size_t usage = sizeof(Node);
 
     for (size_t i = 0; i < pivots_.size(); i++)
         usage += pivots_[i].table->memory_usage() + pivots_[i].table->size();
 
-    usage += pivots_.size() * sizeof(Pivot);
-
-    return usage;
+    return usage + pivots_.size() * sizeof(Pivot);
 }
 
 size_t Node::write_back_size()
@@ -399,8 +397,6 @@ bool Node::constrcutor(BlockReader& reader)
 
     assert(reader.ok());
     assert(pivots > 0);
-
-    pivots_.reserve(pivots);
 
     for (size_t i = 0; i < pivots; i++) {
         nid_t child;

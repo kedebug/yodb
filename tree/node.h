@@ -86,7 +86,8 @@ private:
 
     // find which pivot matches the key
     size_t find_pivot(Slice key);
-    void add_pivot(Slice key, nid_t child);
+
+    void add_pivot(nid_t child, MsgTable* table, Slice key);
 
     // maybe push down or split the table
     void maybe_push_down_or_split();
@@ -113,6 +114,8 @@ private:
     size_t refcnt_;
 
     Container pivots_; 
+    Mutex pivots_mutex_;
+
     RWLock rwlock_;
 
     Mutex mutex_;
