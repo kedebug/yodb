@@ -131,7 +131,6 @@ void Node::create_first_pivot()
 
     assert(pivots_.size() == 0);
     add_pivot(NID_NIL, NULL, Slice());
-    set_dirty(true);
 
     write_unlock();
 }
@@ -255,13 +254,12 @@ void Node::try_split_node(std::vector<Node*>& path)
 
         root->add_pivot(nid(), NULL, Slice());
         root->add_pivot(node->nid(), NULL, middle_key.clone());
-        root->set_dirty(true);
 
         tree_->grow_up(root);
     } else {
         Node* parent = path.back();
 
-        parent->add_pivot(middle_key, node->self_nid_);
+        parent->add_pivot(node->nid(), NULL, middle_key.clone());
         parent->try_split_node(path);
     }
 
@@ -289,6 +287,8 @@ void Node::add_pivot(nid_t child, MsgTable* table, Slice key)
         size_t idx = find_pivot(key);
         pivots_.insert(pivots_.begin() + idx + 1, Pivot(child, table, key));
     }
+
+    set_dirty(true);
 }
 
 void Node::lock_path(const Slice& key, std::vector<Node*>& path)
