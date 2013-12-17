@@ -31,3 +31,6 @@ target_link_libraries(db yodb)
 
 add_executable(skiplist skiplist_test.cc)
 target_link_libraries(skiplist yodb)
+
+add_executable(benchmark db_bench.cc histogram.cc testutil.cc)
+target_link_libraries(benchmark yodb)

@@ -11,15 +11,15 @@
 
 using namespace yodb;
 
-const uint64_t kCount = 200;
+const uint64_t kCount = 1000 * 1000;
 
 DBImpl* g_db;
 
 void thr_put1()
 {
     for (uint64_t i = 0; i < kCount; i++) {
-        char buffer[16] = {0};
-        sprintf(buffer, "%08ld", i);
+        char buffer[100];
+        sprintf(buffer, "%16ld", i);
 
         Slice value(buffer, strlen(buffer));
         Slice key = value;
@@ -31,8 +31,8 @@ void thr_put1()
 void thr_put2()
 {
     for (uint64_t i = kCount; i < kCount * 2; i++) {
-        char buffer[16] = {0};
-        sprintf(buffer, "%08ld", i);
+        char buffer[100];
+        sprintf(buffer, "%16ld", i);
 
         Slice value(buffer, strlen(buffer));
         Slice key = value;
@@ -94,8 +94,8 @@ int main()
 {
     Options opts;
     opts.comparator = new BytewiseComparator();
-    opts.max_node_child_number = 2;
-    opts.max_node_msg_count = 2;
+    opts.max_node_child_number = 16;
+    opts.max_node_msg_count = 10240;
     opts.cache_limited_memory = 1 << 28;
     opts.env = new Env("/home/kedebug/develop/yodb/bin");
 
@@ -104,9 +104,9 @@ int main()
 
     boost::ptr_vector<Thread> threads;
     threads.push_back(new Thread(&thr_put1));
-    threads.push_back(new Thread(&thr_put2));
-    threads.push_back(new Thread(&thr_put3));
-    threads.push_back(new Thread(&thr_put4));
+    // threads.push_back(new Thread(&thr_put2));
+    // threads.push_back(new Thread(&thr_put3));
+    // threads.push_back(new Thread(&thr_put4));
 
     Timestamp start, finish;
 
@@ -128,9 +128,9 @@ int main()
     g_db->init();
 
     threads.push_back(new Thread(boost::bind(&get_thr, 0, kCount)));
-    threads.push_back(new Thread(boost::bind(&get_thr, kCount, kCount * 2)));
-    threads.push_back(new Thread(boost::bind(&get_thr, kCount * 2, kCount * 3)));
-    threads.push_back(new Thread(boost::bind(&get_thr, kCount * 3, kCount * 4)));
+    // threads.push_back(new Thread(boost::bind(&get_thr, kCount, kCount * 2)));
+    // threads.push_back(new Thread(boost::bind(&get_thr, kCount * 2, kCount * 3)));
+    // threads.push_back(new Thread(boost::bind(&get_thr, kCount * 3, kCount * 4)));
 
     start = Timestamp::now();
     for (size_t i = 0; i < threads.size(); i++)
