@@ -55,17 +55,29 @@ bool DBImpl::init()
     return true;
 }
 
-bool DBImpl::put(const Slice& key, const Slice& value)
+bool DBImpl::put(Slice key, Slice value)
 {
     return tree_->put(key, value);
 }
 
-bool DBImpl::del(const Slice& key)
+bool DBImpl::del(Slice key)
 {
     return tree_->del(key);
 }
 
-bool DBImpl::get(const Slice& key, Slice& value)
+bool DBImpl::get(Slice key, Slice& value)
 {
     return tree_->get(key, value);
+}
+
+DB* yodb::DB::open(const std::string& dbname, const Options& opts)
+{
+    DBImpl* db = new DBImpl(dbname, opts);
+
+    if (!db->init()) {
+        delete db;
+        return NULL;
+    }
+
+    return db;
 }

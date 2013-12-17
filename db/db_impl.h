@@ -1,12 +1,13 @@
 #ifndef _YODB_DB_IMPL_H_
 #define _YODB_DB_IMPL_H_
 
+#include "yodb/db.h"
 #include "db/options.h"
 #include "tree/buffer_tree.h"
 
 namespace yodb {
 
-class DBImpl {
+class DBImpl : public DB {
 public:
     DBImpl(const std::string& name, const Options& opts)
         : name_(name), opts_(opts), file_(NULL),
@@ -18,9 +19,9 @@ public:
     
     bool init();
 
-    bool put(const Slice& key, const Slice& value);
-    bool del(const Slice& key);
-    bool get(const Slice& key, Slice& value);
+    bool put(Slice key, Slice value);
+    bool del(Slice key);
+    bool get(Slice key, Slice& value);
 
 private:
     std::string name_;

@@ -22,6 +22,8 @@ public:
     size_t size() const { return size_; }
     bool empty() const { return size_ == 0; }
 
+    std::string to_string() const { return std::string(data_, size_); }
+
     void clear() 
     { 
         data_ = ""; 

@@ -60,7 +60,6 @@ void MsgTable::insert(const Msg& msg)
         
         if (got.key() == msg.key()) {
             size_ -= got.size();
-            assert(got.value() == msg.value()); 
             release = true;
         }
     }

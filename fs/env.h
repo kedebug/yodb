@@ -21,7 +21,7 @@ public:
         memset(&st, 0, sizeof(st));
 
         if (stat(full_path(filename).c_str(), &st) == -1) {
-            LOG_ERROR << "stat file: " << filename << " error" << strerror(errno);
+            LOG_ERROR << "stat file: " << filename << ", error: " << strerror(errno);
             return false;
         }
 
