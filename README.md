@@ -1,4 +1,4 @@
-yodb [![Total views](https://sourcegraph.com/api/repos/github.com/kedebug/yodb/counters/views.png)](https://sourcegraph.com/github.com/kedebug/yodb)
+YoDB [![Total views](https://sourcegraph.com/api/repos/github.com/kedebug/yodb/counters/views.png)](https://sourcegraph.com/github.com/kedebug/yodb)
 ====
 
 A lightweight and efficient key-value storage engine based on the buffer tree.
@@ -17,7 +17,7 @@ Date:       Tue Dec 17 15:00:09 2013
 CPU:        4 * Intel(R) Core(TM)2 Quad CPU    Q8300  @ 2.50GHz
 CPUCache:   2048 KB
 Keys:       16 bytes each
-Values:     100 bytes each (50 bytes after compression)
+Values:     100 bytes each 
 Entries:    1000000
 RawSize:    110.6 MB (estimated)
 FileSize:   110.6 MB (estimated, compression disabled)
