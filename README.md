@@ -1,7 +1,7 @@
 YoDB [![Total views](https://sourcegraph.com/api/repos/github.com/kedebug/yodb/counters/views.png)](https://sourcegraph.com/github.com/kedebug/yodb)
 ====
 
-A lightweight and efficient key-value storage engine based on the buffer tree.
+A lightweight and fast key-value storage engine based on the buffer tree.
 
 ## Purpose
 There have already been several KV databases like [tokudb](https://github.com/Tokutek/ft-index) and  [cascadb](https://github.com/weicao/cascadb), which are using buffer tree as the underlying data structure to optimize written operation. But their code seems to be a little complex and hard for the __beginners__ to understand the core idea of how the tree really works in multi-threaded environment.
@@ -82,4 +82,4 @@ delete opts.env;
 ## Further work
 - Make lock independent with the tree.
 - Add bloom filter to accelerate read operation.
-- ___Needs your help___
+- Add memory table just like leveldb
